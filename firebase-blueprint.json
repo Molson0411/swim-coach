@@ -1,0 +1,87 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Report": {
+      "title": "Analysis Report",
+      "description": "Stored analysis report for swimming techniques or performance",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "mode": { "type": "string", "enum": ["A", "B"] },
+        "stroke": { "type": "string" },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "metaphor": { "type": "string" },
+              "analysis": { "type": "string" }
+            }
+          }
+        },
+        "suggestions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "mnemonic": { "type": "string" },
+              "drill": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "purpose": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "properties": {
+            "swolf": { "type": "number" },
+            "dps": { "type": "number" },
+            "css": { "type": "string" },
+            "finaPoints": { "type": "number" },
+            "analysis": { "type": "string" }
+          }
+        },
+        "trainingPlan": {
+          "type": "object",
+          "properties": {
+            "warmup": { "type": "string" },
+            "drills": { "type": "string" },
+            "mainSet": { "type": "string" },
+            "coolDown": { "type": "string" }
+          }
+        },
+        "growthAdvice": { "type": "string" },
+        "missingData": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "event": { "type": "string" }
+      },
+      "required": ["uid", "mode", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profile documents"
+    },
+    "/reports/{reportId}": {
+      "schema": "Report",
+      "description": "Collection of analysis reports"
+    }
+  }
+}

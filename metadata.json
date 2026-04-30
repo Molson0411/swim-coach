@@ -1,0 +1,7 @@
+{
+  "name": "SwimFlow AI: 游泳生物力學教練",
+  "description": "世界級 AI 游泳動作分析與數位教練平台，專精於側面視角生物力學診斷。",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
