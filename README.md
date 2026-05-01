@@ -1,120 +1,250 @@
 # Swim Coach
 
-React + Vite + Firebase + Gemini 的游泳訓練分析工具。
+React + Vite + Firebase + Gemini API 的游泳影片與數據分析工具。
 
-## 環境需求
+正式網站：
 
-- Node.js 22 以上
+- GitHub Pages: https://molson0411.github.io/swim-coach/
+- API Proxy: https://swim-coach-main.vercel.app
+
+## 專案架構
+
+- `src/`：React 前端。
+- `src/firebase.ts`：Firebase 初始化、Google 登入、Firestore 操作。
+- `firebase-applet-config.json`：Firebase Web app config，目前指向 `swimcoach-e7ddf`。
+- `src/services/gemini.ts`：前端呼叫自己的 API proxy，不直接碰 Gemini API key。
+- `api/analyze.ts`：Vercel Serverless Function，負責呼叫 Gemini 分析。
+- `api/files/start-upload.ts`：Vercel Serverless Function，建立 Gemini Files API 大檔上傳 session。
+- `server/`：本機或 Node host 可用的 Express API proxy。
+- `.github/workflows/deploy.yml`：GitHub Pages 自動部署流程。
+
+## 本機環境
+
+需求：
+
+- Node.js 22+
 - npm
-- Gemini API key
+- Firebase 專案已啟用 Authentication / Google provider
+- Vercel 專案已設定 `GEMINI_API_KEY`
+- GitHub repo secret 已設定 `VITE_API_BASE_URL`
 
-## 本機啟動
+安裝：
 
-1. 安裝套件：
+```bash
+npm install
+```
 
-   ```bash
-   npm install
-   ```
+本機前端：
 
-2. 建立本機環境變數檔：
+```bash
+npm run dev
+```
 
-   ```bash
-   cp .env.example .env.local
-   ```
+本機 API proxy：
 
-3. 在 `.env.local` 設定：
+```bash
+npm run dev:api
+```
 
-   ```bash
-   GEMINI_API_KEY=你的 Gemini API Key
-   ```
+檢查與建置：
 
-4. 啟動 API proxy：
+```bash
+npm run lint
+npm run build
+```
 
-   ```bash
-   npm run dev:api
-   ```
+## Firebase 設定
 
-5. 另開一個終端機，啟動前端開發伺服器：
+Firebase 設定集中在 `firebase-applet-config.json`。
 
-   ```bash
-   npm run dev
-   ```
+目前使用的專案：
 
-6. 開啟 `http://localhost:3000`。
+```json
+{
+  "projectId": "swimcoach-e7ddf",
+  "authDomain": "swimcoach-e7ddf.firebaseapp.com",
+  "storageBucket": "swimcoach-e7ddf.firebasestorage.app",
+  "messagingSenderId": "833013843721",
+  "appId": "1:833013843721:web:d7021aac45f8072f4e75d8",
+  "measurementId": "G-SYHBXVMDFR",
+  "firestoreDatabaseId": "(default)"
+}
+```
 
-## 可用指令
+注意事項：
 
-- `npm run dev`：啟動 Vite 開發伺服器。
-- `npm run dev:api`：啟動本機 Gemini API proxy，預設在 `http://localhost:8787`。
-- `npm run start`：啟動 Node/Express API proxy，並服務 `dist/` 靜態檔。
-- `npm run lint`：執行 TypeScript 型別檢查。
-- `npm run build`：產生 production build 到 `dist/`。
-- `npm run preview`：預覽 `dist/` build 結果。
-- `npm run clean`：清除 `dist/`。
+- Google 登入正式站使用 `signInWithRedirect`，比較適合 GitHub Pages 與手機瀏覽器。
+- Firebase Console > Authentication > Settings > Authorized domains 需要加入 `molson0411.github.io`。
+- 本機測試時需要加入 `localhost`；若使用 `127.0.0.1`，程式會自動切回 `localhost`。
+- Firebase Console > Authentication > Sign-in method 需要啟用 Google provider。
 
 ## Gemini API Proxy
 
-前端不再直接使用 `GEMINI_API_KEY`。瀏覽器只會呼叫：
+前端不能直接放 `GEMINI_API_KEY`。目前架構是：
+
+1. 前端呼叫 `VITE_API_BASE_URL` 指向的後端。
+2. Vercel API route 從環境變數讀取 `GEMINI_API_KEY`。
+3. 後端呼叫 Gemini API。
+4. 前端只接收分析結果。
+
+Vercel 環境變數：
 
 ```text
-POST /api/analyze
+GEMINI_API_KEY=你的 Gemini API key
 ```
 
-Gemini key 只應該設定在後端/API proxy 的環境變數：
+GitHub Repository Secret：
+
+```text
+VITE_API_BASE_URL=https://swim-coach-main.vercel.app
+```
+
+GitHub Actions build 時會把 `VITE_API_BASE_URL` 注入 Vite 前端 bundle。
+
+## 1GB 影片上傳流程
+
+Vercel Function 的 request body 不適合直接接收大影片，所以專案不再使用 base64 JSON 上傳影片。
+
+目前流程：
+
+1. 使用者在前端選擇影片。
+2. 前端檢查檔案型別必須是 `video/*`，大小不可超過 1GB。
+3. 前端呼叫 `/api/files/start-upload`。
+4. 後端使用 Gemini API key 建立 Gemini Files API resumable upload session。
+5. 前端拿到 upload URL 後，直接把影片傳到 Gemini。
+6. Gemini 回傳 `file_uri`。
+7. 前端呼叫 `/api/analyze`，把 `file_uri`、mime type、文字描述與項目送給後端。
+8. 後端等待 Gemini file 進入 `ACTIVE` 狀態後，再呼叫 Gemini model 做分析。
+
+這樣可以避免：
+
+- 前端把大影片轉成 base64 造成記憶體暴增。
+- Vercel API route 收到超大 request body。
+- Gemini API key 暴露在前端。
+
+## GitHub Pages 部署
+
+部署 workflow：`.github/workflows/deploy.yml`
+
+觸發方式：
+
+- push 到 `main`
+- 手動執行 `workflow_dispatch`
+
+部署流程：
+
+1. Checkout repo。
+2. 安裝 Node.js 22。
+3. 執行 `npm ci`。
+4. 執行 `npm run lint`。
+5. 執行 `npm run build`，並注入 `VITE_API_BASE_URL`。
+6. 上傳 `dist/`。
+7. 部署到 GitHub Pages。
+
+正式網址：
+
+```text
+https://molson0411.github.io/swim-coach/
+```
+
+## Vercel 部署
+
+Vercel 負責 API proxy：
+
+- `/api/analyze`
+- `/api/files/start-upload`
+
+必要設定：
+
+1. Vercel project 連到此 GitHub repo，或手動用 Vercel CLI 部署。
+2. 在 Vercel Project Settings > Environment Variables 加入 `GEMINI_API_KEY`。
+3. Production deployment 完成後，API base URL 設為：
+
+```text
+https://swim-coach-main.vercel.app
+```
+
+快速測試 API：
 
 ```bash
-GEMINI_API_KEY=你的 Gemini API Key
+curl -X POST https://swim-coach-main.vercel.app/api/analyze \
+  -H "Content-Type: application/json" \
+  -d "{\"mode\":\"B\",\"inputs\":{\"raceEntries\":[{\"event\":\"50 free\",\"time\":\"30\",\"poolLength\":\"50\"}]}}"
 ```
 
-如果前端部署在 GitHub Pages，GitHub Pages 只能服務靜態檔，不能執行 Node API proxy。請將 API proxy 部署到 Vercel、Render、Railway 或其他可執行 Node/serverless function 的平台，再把 GitHub Actions secret 設為：
+## 常用操作紀錄
 
-```text
-VITE_API_BASE_URL=https://你的-api-proxy 網域
+更新 Firebase config 後：
+
+```bash
+npm run lint
+npm run build
+git add firebase-applet-config.json
+git commit -m "Update Firebase web app config"
+git push origin main
 ```
 
-本專案已提供兩種後端入口：
+更新前端或 API 後：
 
-- `server/index.ts`：一般 Node/Express server，可部署到 Render/Railway/Node host。
-- `api/analyze.ts`：Vercel serverless function 入口。
+```bash
+npm run lint
+npm run build
+git add .
+git commit -m "描述這次修改"
+git push origin main
+```
 
-GitHub Secrets 的值無法被讀回，只能在 Actions 或後端執行環境中注入使用；這是 GitHub 的安全機制。
+查看 GitHub Actions：
 
-## GitHub Pages 自動部署
+```bash
+gh run list --repo Molson0411/swim-coach --limit 5
+gh run watch <run-id> --repo Molson0411/swim-coach --exit-status
+```
 
-本專案已加入 `.github/workflows/deploy.yml`。當程式推送到 `main` 分支，GitHub Actions 會自動：
+## 排錯
 
-1. 使用 Node.js 22。
-2. 執行 `npm ci` 安裝鎖定版本套件。
-3. 執行 `npm run lint` 做型別檢查。
-4. 執行 `npm run build` 建置專案。
-5. 將 `dist/` 部署到 GitHub Pages。
+Google 登入顯示 unauthorized domain：
 
-### 第一次設定 GitHub Pages
+- 確認 Firebase Console 的 Authorized domains 有加入目前網域。
+- 正式站應加入 `molson0411.github.io`。
+- 本機應加入 `localhost`。
+- 確認 `firebase-applet-config.json` 的 `projectId` 是 `swimcoach-e7ddf`。
 
-1. 到 GitHub repo 的 `Settings` > `Pages`。
-2. 在 `Build and deployment` 的 `Source` 選擇 `GitHub Actions`。
-3. 到 `Settings` > `Secrets and variables` > `Actions`。
-4. 新增 Repository secret：`VITE_API_BASE_URL`，值為已部署的 API proxy 網址。
-5. 推送到 `main` 後，到 `Actions` 頁面查看部署結果。
+Google 登入顯示 API key 或 project mismatch：
 
-Vite 已設定在 GitHub Actions 中自動使用 `/${repo-name}/` 作為 GitHub Pages base path；本機開發仍使用 `/`。
+- 確認 `apiKey`、`appId`、`messagingSenderId` 都來自同一個 Firebase Web app。
+- 修改後要重新 push，等 GitHub Pages 部署完成。
+- 瀏覽器可強制重新整理，避免讀到舊 bundle。
 
-## .gitignore 設定
+影片分析失敗：
 
-已排除下列不應上傳的內容：
+- 確認 Vercel 有設定 `GEMINI_API_KEY`。
+- 確認 GitHub secret `VITE_API_BASE_URL` 指向 Vercel API。
+- 確認影片小於 1GB 且 mime type 是 `video/*`。
+- 可先測 `/api/analyze`，確認 API proxy 正常。
+
+本機 `npm run build` 出現 Windows `Access is denied`：
+
+- 此工作區曾遇到 OneDrive/Windows 權限導致 npm shim 或 esbuild 子程序被擋。
+- 可直接使用專案內 Node 執行檢查：
+
+```powershell
+& '.tools\node-v22.15.0-win-x64\node.exe' node_modules\typescript\bin\tsc --noEmit
+& '.tools\node-v22.15.0-win-x64\node.exe' node_modules\vite\bin\vite.js build
+```
+
+## .gitignore 原則
+
+不要提交：
 
 - `node_modules/`
-- `dist/`、`build/`、`coverage/`
-- `.env`、`.env.*`，但保留 `.env.example`
-- npm/yarn/pnpm log
-- Vite、快取與編輯器暫存檔
-- Firebase emulator/debug 暫存檔
+- `dist/`
+- `.env`、`.env.*`
+- log、cache、暫存檔
+- 本機工具目錄 `.tools/`
+- Firebase emulator/debug 產物
 
-## 本次整理紀錄
+可以提交：
 
-- 整理 `package.json` 專案名稱、scripts 與 dependencies/devDependencies 分類。
-- 新增跨平台 `clean` 指令，避免 Windows 無法執行 `rm -rf`。
-- 新增 GitHub Pages 部署 workflow。
-- 擴充 `.gitignore`，避免上傳套件、build、log、環境變數與暫存檔。
-- 更新 `vite.config.ts`，讓 GitHub Actions 部署時自動套用 Pages base path。
-- 新增 Gemini API proxy，避免前端暴露 `GEMINI_API_KEY`。
+- `.env.example`
+- `firebase-applet-config.json`，Firebase Web config 會被前端使用，不是 Gemini API key。
