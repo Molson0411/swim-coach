@@ -15,7 +15,7 @@ import {
   serverTimestamp,
   getDocFromServer
 } from 'firebase/firestore';
-import firebaseConfig from '../firebase-applet-config.json';
+import ... from '../firebase-applet-config';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
