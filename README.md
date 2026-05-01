@@ -213,6 +213,13 @@ curl -X POST https://swim-coach-main.vercel.app/api/analyze \
 - `src/firebase.ts` 會拒絕空值、`GEMINI_API_KEY` 或不像 Firebase Web API key 的 `VITE_FIREBASE_API_KEY`，並 fallback 到 `firebase-applet-config.ts`。
 - 已執行 `npm run lint` 與 `npm run build` 通過；build 需在沙盒外執行以避開 Windows/OneDrive `spawn EPERM`。
 
+### 2026-05-01：修復 Identity Toolkit API restrictions 登入錯誤
+
+- 修復 `auth/requests-to-this-api-identitytoolkit-method-google.cloud.identitytoolkit.v1.projectconfigservice.getprojectconfig-are-blocked`。
+- 因 Gemini key 也可能是 `AIza` 開頭，`src/firebase.ts` 現在只有在 `VITE_FIREBASE_PROJECT_ID`、`VITE_FIREBASE_AUTH_DOMAIN`、`VITE_FIREBASE_APP_ID`、`VITE_FIREBASE_MESSAGING_SENDER_ID` 全部符合目前 Firebase 專案時，才採用 `VITE_FIREBASE_API_KEY`。
+- 若 env config 不完整或疑似錯誤，會直接使用 `firebase-applet-config.ts` 的 Firebase Web fallback key。
+- 已執行 `npm run lint` 與 `npm run build` 通過；build 需在沙盒外執行以避開 Windows/OneDrive `spawn EPERM`。
+
 更新 Firebase config 後：
 
 ```bash

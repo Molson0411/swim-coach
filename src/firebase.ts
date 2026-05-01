@@ -31,9 +31,21 @@ function getEnvValue(key: string, fallback?: string) {
   return value.trim();
 }
 
+function envMatchesFirebaseProject() {
+  const projectId = getEnvValue('VITE_FIREBASE_PROJECT_ID');
+  const authDomain = getEnvValue('VITE_FIREBASE_AUTH_DOMAIN');
+  const appId = getEnvValue('VITE_FIREBASE_APP_ID');
+  const messagingSenderId = getEnvValue('VITE_FIREBASE_MESSAGING_SENDER_ID');
+
+  return projectId === fallbackFirebaseConfig.projectId &&
+    authDomain === fallbackFirebaseConfig.authDomain &&
+    appId === fallbackFirebaseConfig.appId &&
+    messagingSenderId === fallbackFirebaseConfig.messagingSenderId;
+}
+
 function getFirebaseApiKey() {
   const value = getEnvValue('VITE_FIREBASE_API_KEY');
-  if (!value || value === 'GEMINI_API_KEY' || !value.startsWith('AIza')) {
+  if (!value || value === 'GEMINI_API_KEY' || !value.startsWith('AIza') || !envMatchesFirebaseProject()) {
     return fallbackFirebaseConfig.apiKey;
   }
   return value;
@@ -41,11 +53,11 @@ function getFirebaseApiKey() {
 
 const resolvedFirebaseConfig: FirebaseAppConfig = {
   apiKey: getFirebaseApiKey(),
-  authDomain: getEnvValue('VITE_FIREBASE_AUTH_DOMAIN', fallbackFirebaseConfig.authDomain),
-  projectId: getEnvValue('VITE_FIREBASE_PROJECT_ID', fallbackFirebaseConfig.projectId),
-  storageBucket: getEnvValue('VITE_FIREBASE_STORAGE_BUCKET', fallbackFirebaseConfig.storageBucket),
-  messagingSenderId: getEnvValue('VITE_FIREBASE_MESSAGING_SENDER_ID', fallbackFirebaseConfig.messagingSenderId),
-  appId: getEnvValue('VITE_FIREBASE_APP_ID', fallbackFirebaseConfig.appId),
+  authDomain: fallbackFirebaseConfig.authDomain,
+  projectId: fallbackFirebaseConfig.projectId,
+  storageBucket: fallbackFirebaseConfig.storageBucket,
+  messagingSenderId: fallbackFirebaseConfig.messagingSenderId,
+  appId: fallbackFirebaseConfig.appId,
   measurementId: getEnvValue('VITE_FIREBASE_MEASUREMENT_ID', fallbackFirebaseConfig.measurementId),
   firestoreDatabaseId: getEnvValue('VITE_FIREBASE_FIRESTORE_DATABASE_ID', fallbackFirebaseConfig.firestoreDatabaseId || '(default)')
 };
@@ -106,6 +118,8 @@ export const getAuthErrorMessage = (error: unknown) => {
   switch (code) {
     case 'auth/unauthorized-domain':
       return `目前網域 ${currentHost} 尚未加入 Firebase Authentication 授權網域。請確認加入的是 Firebase 專案 ${resolvedFirebaseConfig.projectId}，授權網域需包含 ${currentHost}。`;
+    case 'auth/requests-to-this-api-identitytoolkit-method-google.cloud.identitytoolkit.v1.projectconfigservice.getprojectconfig-are-blocked':
+      return 'Firebase 登入金鑰被 Google Cloud API restrictions 擋住。請確認 GitHub Secret VITE_FIREBASE_API_KEY 使用 Firebase Web API key，且該 key 允許 Identity Toolkit API。';
     case 'auth/popup-blocked':
       return '瀏覽器封鎖了登入視窗，請改用重新導向登入或允許彈出視窗。';
     case 'auth/popup-closed-by-user':
