@@ -3,7 +3,7 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyzeWithGemini } from "./gemini";
-import { AnalysisMode } from "../src/types";
+import type { AnalysisMode } from "../src/types";
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
