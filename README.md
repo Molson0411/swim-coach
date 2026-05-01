@@ -11,7 +11,7 @@ React + Vite + Firebase + Gemini API 的游泳影片與數據分析工具。
 
 - `src/`：React 前端。
 - `src/firebase.ts`：Firebase 初始化、Google 登入、Firestore 操作。
-- `firebase-applet-config.json`：Firebase Web app config，目前指向 `swimcoach-e7ddf`。
+- `firebase-applet-config.ts`：Firebase Web app fallback config，目前指向 `swimcoach-e7ddf`。
 - `src/services/gemini.ts`：前端呼叫自己的 API proxy，不直接碰 Gemini API key。
 - `api/analyze.ts`：Vercel Serverless Function，負責呼叫 Gemini 分析。
 - `api/files/start-upload.ts`：Vercel Serverless Function，建立 Gemini Files API 大檔上傳 session。
@@ -55,7 +55,7 @@ npm run build
 
 ## Firebase 設定
 
-Firebase 設定集中在 `firebase-applet-config.json`。
+Firebase fallback 設定集中在 `firebase-applet-config.ts`，正式 build 會優先讀取 `VITE_FIREBASE_*` 環境變數。
 
 目前使用的專案：
 
@@ -196,12 +196,29 @@ curl -X POST https://swim-coach-main.vercel.app/api/analyze \
 - `/api/analyze` 會用 Firestore transaction 先扣 1 點，Gemini 失敗時補回 1 點。
 - 已執行 `npm run lint` 與 `npm run build`；build 需在沙盒外執行以避開 Windows/OneDrive `spawn EPERM`。
 
+### 2026-05-01：GitHub Pages Build 注入 Firebase Secrets
+
+- `.github/workflows/deploy.yml` 的 `Build site` 步驟已加入 `VITE_FIREBASE_*` env 對應 GitHub Actions secrets。
+- 保留既有 `VITE_API_BASE_URL`，讓 GitHub Pages build 同時取得 API proxy 與 Firebase 前端設定。
+
+### 2026-05-01：修復 Firebase Config JSON 與環境變數讀取
+
+- `firebase-applet-config.ts` 只輸出 fallback config，不在此檔初始化 Firebase。
+- `src/firebase.ts` 會優先讀取 `import.meta.env.VITE_FIREBASE_*`，讓 GitHub Actions build 可注入 Firebase 設定。
+- 已執行 `npm run lint` 與 `npm run build` 通過；build 需在沙盒外執行以避開 Windows/OneDrive `spawn EPERM`。
+
+### 2026-05-01：防止 Firebase API key 誤用 Gemini key
+
+- 修復正式站出現 `identitytoolkit.googleapis.com ... key=GEMINI_API_KEY` 的登入錯誤。
+- `src/firebase.ts` 會拒絕空值、`GEMINI_API_KEY` 或不像 Firebase Web API key 的 `VITE_FIREBASE_API_KEY`，並 fallback 到 `firebase-applet-config.ts`。
+- 已執行 `npm run lint` 與 `npm run build` 通過；build 需在沙盒外執行以避開 Windows/OneDrive `spawn EPERM`。
+
 更新 Firebase config 後：
 
 ```bash
 npm run lint
 npm run build
-git add firebase-applet-config.json
+git add firebase-applet-config.ts
 git commit -m "Update Firebase web app config"
 git push origin main
 ```
@@ -230,7 +247,7 @@ Google 登入顯示 unauthorized domain：
 - 確認 Firebase Console 的 Authorized domains 有加入目前網域。
 - 正式站應加入 `molson0411.github.io`。
 - 本機應加入 `localhost`。
-- 確認 `firebase-applet-config.json` 的 `projectId` 是 `swimcoach-e7ddf`。
+- 確認 `firebase-applet-config.ts` 的 `projectId` 是 `swimcoach-e7ddf`。
 
 Google 登入顯示 API key 或 project mismatch：
 
@@ -269,4 +286,4 @@ Google 登入顯示 API key 或 project mismatch：
 可以提交：
 
 - `.env.example`
-- `firebase-applet-config.json`，Firebase Web config 會被前端使用，不是 Gemini API key。
+- `firebase-applet-config.ts`，Firebase Web fallback config 會被前端使用，不是 Gemini API key。

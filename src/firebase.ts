@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { FirebaseOptions, initializeApp } from 'firebase/app';
 import {
   getAuth,
   getRedirectResult,
@@ -16,10 +16,44 @@ import {
   getDocFromServer
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config';
-const app = initializeApp(firebaseConfig);
+
+type FirebaseAppConfig = FirebaseOptions & {
+  firestoreDatabaseId?: string;
+};
+
+const fallbackFirebaseConfig = firebaseConfig as FirebaseAppConfig;
+
+function getEnvValue(key: string, fallback?: string) {
+  const value = import.meta.env[key];
+  if (typeof value !== 'string' || !value.trim()) {
+    return fallback;
+  }
+  return value.trim();
+}
+
+function getFirebaseApiKey() {
+  const value = getEnvValue('VITE_FIREBASE_API_KEY');
+  if (!value || value === 'GEMINI_API_KEY' || !value.startsWith('AIza')) {
+    return fallbackFirebaseConfig.apiKey;
+  }
+  return value;
+}
+
+const resolvedFirebaseConfig: FirebaseAppConfig = {
+  apiKey: getFirebaseApiKey(),
+  authDomain: getEnvValue('VITE_FIREBASE_AUTH_DOMAIN', fallbackFirebaseConfig.authDomain),
+  projectId: getEnvValue('VITE_FIREBASE_PROJECT_ID', fallbackFirebaseConfig.projectId),
+  storageBucket: getEnvValue('VITE_FIREBASE_STORAGE_BUCKET', fallbackFirebaseConfig.storageBucket),
+  messagingSenderId: getEnvValue('VITE_FIREBASE_MESSAGING_SENDER_ID', fallbackFirebaseConfig.messagingSenderId),
+  appId: getEnvValue('VITE_FIREBASE_APP_ID', fallbackFirebaseConfig.appId),
+  measurementId: getEnvValue('VITE_FIREBASE_MEASUREMENT_ID', fallbackFirebaseConfig.measurementId),
+  firestoreDatabaseId: getEnvValue('VITE_FIREBASE_FIRESTORE_DATABASE_ID', fallbackFirebaseConfig.firestoreDatabaseId || '(default)')
+};
+
+const app = initializeApp(resolvedFirebaseConfig);
 export const auth = getAuth(app);
 auth.languageCode = 'zh-TW';
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const db = getFirestore(app, resolvedFirebaseConfig.firestoreDatabaseId);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({
   prompt: 'select_account'
@@ -71,7 +105,7 @@ export const getAuthErrorMessage = (error: unknown) => {
 
   switch (code) {
     case 'auth/unauthorized-domain':
-      return `目前網域 ${currentHost} 尚未加入 Firebase Authentication 授權網域。請確認加入的是 Firebase 專案 ${firebaseConfig.projectId}，授權網域需包含 ${currentHost}。`;
+      return `目前網域 ${currentHost} 尚未加入 Firebase Authentication 授權網域。請確認加入的是 Firebase 專案 ${resolvedFirebaseConfig.projectId}，授權網域需包含 ${currentHost}。`;
     case 'auth/popup-blocked':
       return '瀏覽器封鎖了登入視窗，請改用重新導向登入或允許彈出視窗。';
     case 'auth/popup-closed-by-user':
