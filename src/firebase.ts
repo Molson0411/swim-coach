@@ -1,18 +1,18 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import {
+  getAuth,
+  getRedirectResult,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  signOut,
+  User
+} from 'firebase/auth';
 import { 
   getFirestore, 
-  collection, 
-  addDoc, 
-  query, 
-  where, 
-  orderBy, 
-  onSnapshot, 
   doc, 
   setDoc, 
-  getDoc,
   serverTimestamp,
-  Timestamp,
   getDocFromServer
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
@@ -21,22 +21,76 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({
+  prompt: 'select_account'
+});
+
+export const saveUserProfile = async (user: User) => {
+  await setDoc(doc(db, 'users', user.uid), {
+    uid: user.uid,
+    email: user.email,
+    displayName: user.displayName,
+    photoURL: user.photoURL,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+};
+
+function shouldFallbackToRedirect(error: unknown) {
+  const code = typeof error === 'object' && error && 'code' in error
+    ? String((error as { code?: unknown }).code)
+    : '';
+  return [
+    'auth/popup-blocked',
+    'auth/popup-closed-by-user',
+    'auth/cancelled-popup-request',
+    'auth/operation-not-supported-in-this-environment'
+  ].includes(code);
+}
+
+export const getAuthErrorMessage = (error: unknown) => {
+  const code = typeof error === 'object' && error && 'code' in error
+    ? String((error as { code?: unknown }).code)
+    : '';
+
+  switch (code) {
+    case 'auth/unauthorized-domain':
+      return '目前網域尚未加入 Firebase Authentication 授權網域，請在 Firebase Console 加入 localhost 與 127.0.0.1。';
+    case 'auth/popup-blocked':
+      return '瀏覽器封鎖了登入彈窗，系統會改用重新導向登入。';
+    case 'auth/popup-closed-by-user':
+      return '登入視窗已關閉，請再試一次。';
+    case 'auth/cancelled-popup-request':
+      return '已有另一個登入視窗正在處理，請稍候再試。';
+    case 'auth/operation-not-supported-in-this-environment':
+      return '目前瀏覽器環境不支援彈窗登入，系統會改用重新導向登入。';
+    case 'auth/network-request-failed':
+      return '登入連線失敗，請確認網路後再試一次。';
+    default:
+      return error instanceof Error ? error.message : '登入失敗，請稍後再試。';
+  }
+};
+
+export const completeGoogleRedirectSignIn = async () => {
+  const result = await getRedirectResult(auth);
+  if (!result?.user) {
+    return null;
+  }
+  await saveUserProfile(result.user);
+  return result.user;
+};
 
 export const signInWithGoogle = async () => {
   try {
     const result = await signInWithPopup(auth, googleProvider);
     const user = result.user;
-    // Save user profile
-    await setDoc(doc(db, 'users', user.uid), {
-      uid: user.uid,
-      email: user.email,
-      displayName: user.displayName,
-      photoURL: user.photoURL,
-      updatedAt: serverTimestamp()
-    }, { merge: true });
+    await saveUserProfile(user);
     return user;
   } catch (error) {
     console.error("Error signing in with Google", error);
+    if (shouldFallbackToRedirect(error)) {
+      await signInWithRedirect(auth, googleProvider);
+      return null;
+    }
     throw error;
   }
 };

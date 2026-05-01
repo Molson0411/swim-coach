@@ -29,7 +29,16 @@ import { analyzeSwim } from './services/gemini';
 import { AnalysisReport, AnalysisMode } from './types';
 import { cn } from './lib/utils';
 import { Toaster, toast } from 'sonner';
-import { auth, db, signInWithGoogle, logout, handleFirestoreError, OperationType } from './firebase';
+import {
+  auth,
+  db,
+  completeGoogleRedirectSignIn,
+  getAuthErrorMessage,
+  signInWithGoogle,
+  logout,
+  handleFirestoreError,
+  OperationType
+} from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
 
@@ -136,6 +145,7 @@ export default function App() {
 function AppContent() {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
   const [mode, setMode] = useState<AnalysisMode | null>(null);
   const [activeTab, setActiveTab] = useState<'input' | 'report' | 'history'>('input');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -168,12 +178,47 @@ function AppContent() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    completeGoogleRedirectSignIn()
+      .then((redirectUser) => {
+        if (redirectUser) {
+          toast.success('登入成功');
+        }
+      })
+      .catch((error) => {
+        toast.error(getAuthErrorMessage(error));
+      });
+
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setIsAuthReady(true);
     });
     return () => unsubscribe();
   }, []);
+
+  const handleSignIn = async () => {
+    if (window.location.hostname === '127.0.0.1') {
+      toast.info('Firebase 登入需要使用 localhost，正在切換網址...');
+      window.location.replace(
+        `${window.location.protocol}//localhost:${window.location.port}${window.location.pathname}${window.location.search}${window.location.hash}`
+      );
+      return;
+    }
+
+    setIsSigningIn(true);
+    const toastId = toast.loading('正在開啟 Google 登入...');
+    try {
+      const signedInUser = await signInWithGoogle();
+      if (signedInUser) {
+        toast.success('登入成功', { id: toastId });
+      } else {
+        toast.info('正在前往 Google 登入...', { id: toastId });
+      }
+    } catch (error) {
+      toast.error(getAuthErrorMessage(error), { id: toastId });
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -383,10 +428,11 @@ function AppContent() {
             </div>
           ) : (
             <button 
-              onClick={signInWithGoogle}
-              className="flex items-center gap-2 bg-ink text-white px-6 py-2 rounded-xl text-[11px] uppercase tracking-widest font-bold hover:bg-ink/90 transition-all shadow-lg shadow-ink/20"
+              onClick={handleSignIn}
+              disabled={!isAuthReady || isSigningIn}
+              className="flex items-center gap-2 bg-ink text-white px-6 py-2 rounded-xl text-[11px] uppercase tracking-widest font-bold hover:bg-ink/90 transition-all shadow-lg shadow-ink/20 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <LogIn className="w-4 h-4" /> Login
+              <LogIn className="w-4 h-4" /> {isSigningIn ? 'Signing in...' : 'Login'}
             </button>
           )}
 
