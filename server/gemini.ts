@@ -1,5 +1,4 @@
-import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
-import { AnalysisMode, AnalysisReport } from "../src/types";
+import type { AnalysisMode, AnalysisReport } from "../src/types";
 
 type AnalyzeInputs = {
   videoBase64?: string;
@@ -16,39 +15,53 @@ type AnalyzeInputs = {
 
 const SYSTEM_INSTRUCTION = `你是一款具備「雙模式切換」功能的 AI 游泳教練系統。
 
-### 模式 A：動作技術診斷
-當進入此模式時：
-1. 必須根據游泳項目、使用者描述與影片資訊進行分析。
-2. 以白話說明技術問題，同時保留專業判斷。
-3. findings 至少提供 3 項，每項包含 metaphor 與 analysis。
-4. suggestions 至少提供 3 項，每項包含 mnemonic 與 drill。
+模式 A：動作技術診斷
+- 根據游泳項目、使用者描述與影片資訊進行分析。
+- findings 至少提供 3 項，每項包含 metaphor 與 analysis。
+- suggestions 至少提供 3 項，每項包含 mnemonic 與 drill。
 
-### 模式 B：成績分析與課表
-當進入此模式時：
-1. 根據項目、秒數、池長、划手數與分段成績分析。
-2. 計算或估算 SWOLF、DPS、CSS 與訓練區間。
-3. 提供暖身、技術練習、主訓練與緩和。
-4. 課表請使用 [組數]x[距離] [泳姿] @ [時間] 的形式。
+模式 B：成績分析與課表
+- 根據項目、秒數、池長、划手數與分段成績分析。
+- 計算或估算 SWOLF、DPS、CSS 與訓練區間。
+- 提供 warmup、drills、mainSet、coolDown。
+- 課表使用 [組數]x[距離] [泳姿] @ [時間] 的形式。
 
-### 全局要求
+全局要求
 - 以繁體中文輸出。
 - 不要使用「包干」一詞。
 - 資料不足時，把缺少內容放入 missingData。
-- 僅回傳符合 schema 的 JSON。`;
+- 僅回傳 JSON，不要 Markdown，不要程式碼區塊。`;
 
 function getApiKey() {
   return process.env.GEMINI_API_KEY || "";
 }
 
 function buildPrompt(mode: AnalysisMode, inputs: AnalyzeInputs) {
+  const schema = `請回傳符合此結構的 JSON：
+{
+  "mode": "A" 或 "B",
+  "impression": "整體評價",
+  "stroke": "泳姿或項目",
+  "findings": [{"metaphor": "白話診斷", "analysis": "專業分析"}],
+  "suggestions": [{"mnemonic": "口訣", "drill": {"name": "練習名稱", "purpose": "練習目的"}}],
+  "metrics": {"swolf": 0, "dps": 0, "css": "CSS速度", "finaPoints": 0, "analysis": "效率分析"},
+  "trainingPlan": {"warmup": "暖身", "drills": "技術練習", "mainSet": "主訓練", "coolDown": "緩和"},
+  "growthAdvice": "成長建議",
+  "missingData": []
+}`;
+
   if (mode === "A") {
-    return `進入模式 A：動作技術診斷。
+    return `${schema}
+
+進入模式 A：動作技術診斷。
 項目：${inputs.event || "未提供"}
 使用者描述：${inputs.textInput || "無"}
 影片：${inputs.videoBase64 ? "已提供影片資料" : "未提供影片"}`;
   }
 
-  return `進入模式 B：成績分析與課表。提供以下比賽數據：
+  return `${schema}
+
+進入模式 B：成績分析與課表。提供以下比賽數據：
 ${inputs.raceEntries?.map((entry, index) => (
   `項目 ${index + 1}：${entry.event}，總時間：${entry.time}，划手數：${entry.strokeCount || "未提供"}，池長：${entry.poolLength}，分段成績：${entry.splits || "無"}`
 )).join("\n") || "未提供"}`;
@@ -63,13 +76,13 @@ export async function analyzeWithGemini(
     throw new Error("GEMINI_API_KEY is not configured on the server.");
   }
 
-  const ai = new GoogleGenAI({ apiKey });
-  const parts: any[] = [];
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const parts: unknown[] = [];
 
   if (inputs.videoBase64) {
     parts.push({
-      inlineData: {
-        mimeType: "video/mp4",
+      inline_data: {
+        mime_type: "video/mp4",
         data: inputs.videoBase64,
       },
     });
@@ -77,71 +90,49 @@ export async function analyzeWithGemini(
 
   parts.push({ text: buildPrompt(mode, inputs) });
 
-  const response = await ai.models.generateContent({
-    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-    contents: { parts },
-    config: {
-      systemInstruction: SYSTEM_INSTRUCTION,
-      responseMimeType: "application/json",
-      thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          mode: { type: Type.STRING, enum: ["A", "B"] },
-          impression: { type: Type.STRING },
-          stroke: { type: Type.STRING },
-          findings: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                metaphor: { type: Type.STRING },
-                analysis: { type: Type.STRING },
-              },
-            },
-          },
-          suggestions: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                mnemonic: { type: Type.STRING },
-                drill: {
-                  type: Type.OBJECT,
-                  properties: {
-                    name: { type: Type.STRING },
-                    purpose: { type: Type.STRING },
-                  },
-                },
-              },
-            },
-          },
-          metrics: {
-            type: Type.OBJECT,
-            properties: {
-              swolf: { type: Type.NUMBER },
-              dps: { type: Type.NUMBER },
-              css: { type: Type.STRING },
-              finaPoints: { type: Type.NUMBER },
-              analysis: { type: Type.STRING },
-            },
-          },
-          trainingPlan: {
-            type: Type.OBJECT,
-            properties: {
-              warmup: { type: Type.STRING },
-              drills: { type: Type.STRING },
-              mainSet: { type: Type.STRING },
-              coolDown: { type: Type.STRING },
-            },
-          },
-          growthAdvice: { type: Type.STRING },
-          missingData: { type: Type.ARRAY, items: { type: Type.STRING } },
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: SYSTEM_INSTRUCTION }],
         },
-        required: ["mode", "growthAdvice"],
-      },
-    },
-  });
+        contents: [
+          {
+            role: "user",
+            parts,
+          },
+        ],
+        generationConfig: {
+          responseMimeType: "application/json",
+        },
+      }),
+    }
+  );
 
-  return JSON.parse(response.text || "{}") as AnalysisReport;
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Gemini API request failed (${response.status}): ${detail}`);
+  }
+
+  const data = await response.json() as {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+  };
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  if (!text) {
+    throw new Error("Gemini API returned an empty response.");
+  }
+
+  return JSON.parse(stripCodeFence(text)) as AnalysisReport;
+}
+
+function stripCodeFence(value: string) {
+  return value
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
 }
