@@ -27,12 +27,28 @@ googleProvider.setCustomParameters({
 });
 
 export const saveUserProfile = async (user: User) => {
-  await setDoc(doc(db, 'users', user.uid), {
+  const userRef = doc(db, 'users', user.uid);
+  const snapshot = await getDocFromServer(userRef);
+  const profile = {
     uid: user.uid,
     email: user.email,
     displayName: user.displayName,
     photoURL: user.photoURL,
     updatedAt: serverTimestamp()
+  };
+
+  if (!snapshot.exists()) {
+    await setDoc(userRef, {
+      ...profile,
+      freeCredits: 5
+    });
+    return;
+  }
+
+  const existingCredits = snapshot.data().freeCredits;
+  await setDoc(userRef, {
+    ...profile,
+    ...(typeof existingCredits === 'number' ? {} : { freeCredits: 5 })
   }, { merge: true });
 };
 

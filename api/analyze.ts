@@ -1,4 +1,9 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import {
+  debitUserCredit,
+  refundUserCredit,
+  verifyFirebaseToken,
+} from "./firebase-admin";
 
 type AnalysisMode = "A" | "B";
 
@@ -72,6 +77,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    const user = await verifyFirebaseToken(req);
     const { mode, inputs } = req.body as {
       mode?: AnalysisMode;
       inputs?: AnalyzeInputs;
@@ -82,13 +88,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const report = await analyzeWithGemini(mode, inputs || {});
-    res.status(200).json(report);
+    await debitUserCredit(user.uid);
+
+    try {
+      const report = await analyzeWithGemini(mode, inputs || {});
+      res.status(200).json(report);
+    } catch (error) {
+      await refundUserCredit(user.uid).catch((refundError) => {
+        console.error("Failed to refund user credit after Gemini error:", refundError);
+      });
+      throw error;
+    }
   } catch (error) {
     console.error("Analyze API error:", error);
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to analyze swim data.",
-    });
+    const message = error instanceof Error ? error.message : "Failed to analyze swim data.";
+    const status = message.includes("Firebase ID token") ? 401 : message === "免費額度已用完" ? 402 : 500;
+    res.status(status).json({ error: message });
   }
 }
 
@@ -99,7 +114,7 @@ function setCorsHeaders(req: VercelRequest, res: VercelResponse) {
     res.setHeader("Vary", "Origin");
   }
   res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization,Content-Type");
 }
 
 function isAllowedOrigin(origin: string) {

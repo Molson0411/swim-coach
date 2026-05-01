@@ -335,7 +335,7 @@ function AppContent() {
       }, 500);
     } catch (error) {
       console.error('Analysis failed:', error);
-      toast.error('分析失敗，請稍後再試。');
+      toast.error(error instanceof Error ? error.message : '分析失敗，請稍後再試。');
     } finally {
       clearInterval(progressInterval);
       setIsAnalyzing(false);

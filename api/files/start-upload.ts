@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { assertUserHasCredits, verifyFirebaseToken } from "../firebase-admin";
 
 const MAX_VIDEO_BYTES = 1024 * 1024 * 1024;
 
@@ -16,6 +17,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    const user = await verifyFirebaseToken(req);
+    await assertUserHasCredits(user.uid);
+
     const { displayName, mimeType, size } = req.body as {
       displayName?: string;
       mimeType?: string;
@@ -41,9 +45,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(200).json(uploadSession);
   } catch (error) {
     console.error("Gemini upload session error:", error);
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to create upload session.",
-    });
+    const message = error instanceof Error ? error.message : "Failed to create upload session.";
+    const status = message.includes("Firebase ID token") ? 401 : message === "免費額度已用完" ? 402 : 500;
+    res.status(status).json({ error: message });
   }
 }
 
@@ -54,7 +58,7 @@ function setCorsHeaders(req: VercelRequest, res: VercelResponse) {
     res.setHeader("Vary", "Origin");
   }
   res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization,Content-Type");
 }
 
 function isAllowedOrigin(origin: string) {
