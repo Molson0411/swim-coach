@@ -1,10 +1,10 @@
 {
-  "projectId": "swimcoach-e7ddf",
-  "appId": "1:833013843721:web:d7021aac45f8072f4e75d8",
-  "apiKey": "GEMINI_API_KEY",
-  "authDomain": "swimcoach-e7ddf.firebaseapp.com",
-  "firestoreDatabaseId": "(default)",
-  "storageBucket": "swimcoach-e7ddf.firebasestorage.app",
-  "messagingSenderId": "833013843721",
-  "measurementId": "G-SYHBXVMDFR"
+  projectId: "swimcoach-e7ddf",
+  appId: "1:833013843721:web:d7021aac45f8072f4e75d8",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,  // 這裡改掉了！而且沒有雙引號！
+  authDomain: "swimcoach-e7ddf.firebaseapp.com",
+  firestoreDatabaseId: "(default)",
+  storageBucket: "swimcoach-e7ddf.firebasestorage.app",
+  messagingSenderId: "833013843721",
+  measurementId: "G-SYHBXVMDFR"
 }
