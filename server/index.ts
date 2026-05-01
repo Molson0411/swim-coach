@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { analyzeWithGemini } from "./gemini";
+import { analyzeWithGemini, startGeminiFileUpload } from "./gemini";
 import type { AnalysisMode } from "../src/types";
 
 const app = express();
@@ -29,6 +29,39 @@ app.use((req, res, next) => {
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
+});
+
+app.post("/api/files/start-upload", async (req, res) => {
+  try {
+    const { displayName, mimeType, size } = req.body as {
+      displayName?: string;
+      mimeType?: string;
+      size?: number;
+    };
+
+    if (!displayName || !mimeType || typeof size !== "number") {
+      res.status(400).json({ error: "displayName, mimeType and size are required." });
+      return;
+    }
+
+    if (!mimeType.startsWith("video/")) {
+      res.status(400).json({ error: "Only video uploads are supported." });
+      return;
+    }
+
+    if (size <= 0 || size > 1024 * 1024 * 1024) {
+      res.status(400).json({ error: "Video must be 1GB or smaller." });
+      return;
+    }
+
+    const uploadSession = await startGeminiFileUpload({ displayName, mimeType, size });
+    res.json(uploadSession);
+  } catch (error) {
+    console.error("Gemini upload session error:", error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to create upload session.",
+    });
+  }
 });
 
 app.post("/api/analyze", async (req, res) => {

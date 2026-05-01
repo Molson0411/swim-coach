@@ -25,7 +25,7 @@ import {
   User as UserIcon,
   Trash2
 } from 'lucide-react';
-import { analyzeSwim } from './services/gemini';
+import { analyzeSwim, uploadVideoForAnalysis } from './services/gemini';
 import { AnalysisReport, AnalysisMode } from './types';
 import { cn } from './lib/utils';
 import { Toaster, toast } from 'sonner';
@@ -157,7 +157,7 @@ function AppContent() {
   // Mode A Inputs
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
-  const [videoBase64, setVideoBase64] = useState<string | null>(null);
+  const MAX_VIDEO_BYTES = 1024 * 1024 * 1024;
   const [textInput, setTextInput] = useState('');
   const [eventA, setEventA] = useState('');
 
@@ -207,7 +207,9 @@ function AppContent() {
     setIsSigningIn(true);
     const toastId = toast.loading('正在開啟 Google 登入...');
     try {
-      const signedInUser = await signInWithGoogle();
+      const shouldUseRedirect = window.location.hostname !== 'localhost'
+        && window.location.hostname !== '127.0.0.1';
+      const signedInUser = await signInWithGoogle({ redirect: shouldUseRedirect });
       if (signedInUser) {
         toast.success('登入成功', { id: toastId });
       } else {
@@ -247,15 +249,18 @@ function AppContent() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (!file.type.startsWith('video/')) {
+        toast.error('請上傳影片檔。');
+        e.target.value = '';
+        return;
+      }
+      if (file.size > MAX_VIDEO_BYTES) {
+        toast.error('影片大小不可超過 1GB。');
+        e.target.value = '';
+        return;
+      }
       setVideoFile(file);
       setVideoPreview(URL.createObjectURL(file));
-      
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = (reader.result as string).split(',')[1];
-        setVideoBase64(base64String);
-      };
-      reader.readAsDataURL(file);
     }
   };
 
@@ -289,8 +294,14 @@ function AppContent() {
     }, 800);
 
     try {
+      const uploadedVideo = mode === 'A' && videoFile
+        ? await uploadVideoForAnalysis(videoFile)
+        : null;
+
       const result = await analyzeSwim(mode, {
-        videoBase64: mode === 'A' ? videoBase64 || undefined : undefined,
+        videoFileUri: uploadedVideo?.uri,
+        videoFileName: uploadedVideo?.name,
+        videoMimeType: uploadedVideo?.mimeType,
         textInput: mode === 'A' ? textInput : undefined,
         event: mode === 'A' ? eventA : undefined,
         raceEntries: mode === 'B' ? raceEntries.map(e => ({
@@ -338,7 +349,6 @@ function AppContent() {
     setActiveTab('input');
     setVideoFile(null);
     setVideoPreview(null);
-    setVideoBase64(null);
     setTextInput('');
     setEventA('');
     setRaceEntries([

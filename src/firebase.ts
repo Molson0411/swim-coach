@@ -8,10 +8,10 @@ import {
   signOut,
   User
 } from 'firebase/auth';
-import { 
-  getFirestore, 
-  doc, 
-  setDoc, 
+import {
+  getFirestore,
+  doc,
+  setDoc,
   serverTimestamp,
   getDocFromServer
 } from 'firebase/firestore';
@@ -19,6 +19,7 @@ import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+auth.languageCode = 'zh-TW';
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({
@@ -51,20 +52,21 @@ export const getAuthErrorMessage = (error: unknown) => {
   const code = typeof error === 'object' && error && 'code' in error
     ? String((error as { code?: unknown }).code)
     : '';
+  const currentHost = typeof window !== 'undefined' ? window.location.hostname : '目前網域';
 
   switch (code) {
     case 'auth/unauthorized-domain':
-      return '目前網域尚未加入 Firebase Authentication 授權網域，請在 Firebase Console 加入 localhost 與 127.0.0.1。';
+      return `目前網域 ${currentHost} 尚未加入 Firebase Authentication 授權網域。請確認加入的是 Firebase 專案 ${firebaseConfig.projectId}，授權網域需包含 ${currentHost}。`;
     case 'auth/popup-blocked':
-      return '瀏覽器封鎖了登入彈窗，系統會改用重新導向登入。';
+      return '瀏覽器封鎖了登入視窗，請改用重新導向登入或允許彈出視窗。';
     case 'auth/popup-closed-by-user':
-      return '登入視窗已關閉，請再試一次。';
+      return '登入視窗已關閉，請重新登入。';
     case 'auth/cancelled-popup-request':
-      return '已有另一個登入視窗正在處理，請稍候再試。';
+      return '已有另一個登入流程正在進行，請稍後再試。';
     case 'auth/operation-not-supported-in-this-environment':
-      return '目前瀏覽器環境不支援彈窗登入，系統會改用重新導向登入。';
+      return '目前瀏覽器環境不支援彈出視窗登入，請使用重新導向登入。';
     case 'auth/network-request-failed':
-      return '登入連線失敗，請確認網路後再試一次。';
+      return '登入連線失敗，請確認網路連線後再試。';
     default:
       return error instanceof Error ? error.message : '登入失敗，請稍後再試。';
   }
@@ -79,14 +81,19 @@ export const completeGoogleRedirectSignIn = async () => {
   return result.user;
 };
 
-export const signInWithGoogle = async () => {
+export const signInWithGoogle = async (options: { redirect?: boolean } = {}) => {
+  if (options.redirect) {
+    await signInWithRedirect(auth, googleProvider);
+    return null;
+  }
+
   try {
     const result = await signInWithPopup(auth, googleProvider);
     const user = result.user;
     await saveUserProfile(user);
     return user;
   } catch (error) {
-    console.error("Error signing in with Google", error);
+    console.error('Error signing in with Google', error);
     if (shouldFallbackToRedirect(error)) {
       await signInWithRedirect(auth, googleProvider);
       return null;
@@ -143,18 +150,17 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     },
     operationType,
     path
-  }
+  };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
 
-// Test connection
 async function testConnection() {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
-    if(error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration. ");
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error('Please check your Firebase configuration.');
     }
   }
 }
