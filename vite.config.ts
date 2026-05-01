@@ -14,9 +14,6 @@ export default defineConfig(({mode}) => {
   return {
     base: env.BASE_PATH || githubPagesBase,
     plugins: [react(), tailwindcss()],
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
@@ -27,6 +24,12 @@ export default defineConfig(({mode}) => {
       port: 3000,
       strictPort: true,
       allowedHosts: true,
+      proxy: {
+        '/api': {
+          target: env.VITE_API_BASE_URL || 'http://127.0.0.1:8787',
+          changeOrigin: true,
+        },
+      },
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
