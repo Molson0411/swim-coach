@@ -15,8 +15,7 @@ import {
   serverTimestamp,
   getDocFromServer
 } from 'firebase/firestore';
-import ... from '../firebase-applet-config';
-
+import firebaseConfig from '../firebase-applet-config';
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 auth.languageCode = 'zh-TW';
