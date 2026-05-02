@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { handleCorsPreflight, setCorsHeaders } from "../cors";
 import { assertUserHasCredits, verifyFirebaseToken } from "../firebase-admin";
 
 type GeminiUploadResponse = {
@@ -15,8 +16,7 @@ const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setCorsHeaders(req, res);
 
-  if (req.method === "OPTIONS") {
-    res.status(204).end();
+  if (handleCorsPreflight(req, res)) {
     return;
   }
 
@@ -87,32 +87,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const status = message.includes("Firebase ID token") ? 401 : message === "免費額度已用完" ? 402 : 500;
     res.status(status).json({ error: message });
   }
-}
-
-function setCorsHeaders(req: VercelRequest, res: VercelResponse) {
-  const origin = req.headers.origin;
-  if (typeof origin === "string" && isAllowedOrigin(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Vary", "Origin");
-  }
-  res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Authorization,Content-Type,X-Upload-Url,X-Upload-Offset,X-Upload-Command");
-}
-
-function isAllowedOrigin(origin: string) {
-  const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-
-  if (allowedOrigins.includes(origin)) {
-    return true;
-  }
-
-  return origin === "https://molson0411.github.io"
-    || /^http:\/\/localhost:\d+$/.test(origin)
-    || /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)
-    || /^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin);
 }
 
 function getSingleHeader(value: string | string[] | undefined) {
