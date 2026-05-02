@@ -30,7 +30,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const uploadSession = handleStartUpload(req);
+    const uploadSession = await handleStartUpload(req);
     res.status(200).json(uploadSession);
   } catch (error) {
     setCorsHeaders(req, res);
@@ -50,7 +50,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-function handleStartUpload(req: VercelRequest) {
+async function handleStartUpload(req: VercelRequest) {
   const { fileName, contentType, size } = req.body as StartUploadBody;
 
   if (!fileName || !contentType) {
@@ -73,13 +73,15 @@ function handleStartUpload(req: VercelRequest) {
   });
 }
 
-function createStorageSignedUploadUrl(input: {
+async function createStorageSignedUploadUrl(input: {
   uid: string;
   fileName: string;
   contentType: string;
 }) {
   const serviceAccount = getServiceAccount();
   const bucket = process.env.FIREBASE_STORAGE_BUCKET || `${serviceAccount.projectId}.firebasestorage.app`;
+  await assertBucketExists(bucket);
+
   const storagePath = [
     "uploads",
     sanitizePathPart(input.uid),
@@ -243,6 +245,28 @@ function getErrorStatus(message: string) {
   }
 
   return 500;
+}
+
+async function assertBucketExists(bucket: string) {
+  const response = await fetch(
+    `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}`,
+    { method: "GET" }
+  );
+
+  if (response.status === 404) {
+    throw new Error(
+      `Firebase Storage bucket "${bucket}" does not exist. Enable Firebase Storage for the swimcoach-e7ddf project or set FIREBASE_STORAGE_BUCKET to the real bucket name in Vercel.`
+    );
+  }
+
+  if (response.status === 403 || response.status === 401) {
+    return;
+  }
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Unable to verify Firebase Storage bucket "${bucket}" (${response.status}): ${detail}`);
+  }
 }
 
 class BadRequestError extends Error {
