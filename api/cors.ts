@@ -4,7 +4,7 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "https://molson0411.github.io",
 ];
 
-const ALLOWED_METHODS = "GET,POST,PUT,DELETE,OPTIONS";
+const ALLOWED_METHODS = "GET,OPTIONS,PATCH,DELETE,POST,PUT";
 const ALLOWED_HEADERS = [
   "Authorization",
   "Content-Type",
@@ -33,7 +33,7 @@ export function handleCorsPreflight(req: VercelRequest, res: VercelResponse) {
   setCorsHeaders(req, res);
 
   if (req.method === "OPTIONS") {
-    res.status(204).end();
+    res.status(200).end();
     return true;
   }
 
