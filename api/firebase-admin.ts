@@ -6,7 +6,6 @@ import {
   Firestore,
   getFirestore,
 } from "firebase-admin/firestore";
-import { getStorage } from "firebase-admin/storage";
 
 type AuthenticatedUser = {
   uid: string;
@@ -69,7 +68,8 @@ export function getAdminDb(): Firestore {
   return getFirestore(getFirebaseAdminApp());
 }
 
-export function getAdminStorageBucket() {
+export async function getAdminStorageBucket() {
+  const { getStorage } = await import("firebase-admin/storage");
   return getStorage(getFirebaseAdminApp()).bucket();
 }
 

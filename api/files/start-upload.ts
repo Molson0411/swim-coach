@@ -81,7 +81,7 @@ async function createStorageSignedUploadUrl(input: {
   fileName: string;
   contentType: string;
 }) {
-  const bucket = getAdminStorageBucket();
+  const bucket = await getAdminStorageBucket();
   const storagePath = [
     "uploads",
     input.uid,
