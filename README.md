@@ -429,3 +429,53 @@ Google 登入顯示 API key 或 project mismatch：
 - Updated `FIREBASE_PRIVATE_KEY` handling to use `process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')` so Vercel escaped newlines are converted back to real newlines.
 - Confirmed `FIREBASE_SERVICE_ACCOUNT.private_key` also keeps newline replacement handling.
 - Verification: `npm.cmd run lint` passed.
+
+## 2026-05-02 Firebase Storage CORS Auto Setup
+
+Added `scripts/set-firebase-cors.ts` and the npm command:
+
+```bash
+npm run setup-cors
+```
+
+The script reads Firebase Admin credentials from either:
+
+```text
+FIREBASE_SERVICE_ACCOUNT={"type":"service_account",...}
+```
+
+or:
+
+```text
+FIREBASE_PROJECT_ID=swimcoach-e7ddf
+FIREBASE_CLIENT_EMAIL=...
+FIREBASE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n
+FIREBASE_STORAGE_BUCKET=swimcoach-e7ddf.firebasestorage.app
+```
+
+It writes this CORS rule to the Firebase Storage bucket:
+
+```json
+[
+  {
+    "origin": ["*"],
+    "method": ["GET", "PUT", "POST", "DELETE", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "Authorization",
+      "Content-Length",
+      "User-Agent",
+      "x-goog-resumable"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
+```
+
+Local execution:
+
+```powershell
+npm run setup-cors
+```
+
+If local `.env` does not contain the Firebase Admin credentials, copy the same values from Vercel Project Settings > Environment Variables into a local `.env` file first. Do not commit `.env`.
