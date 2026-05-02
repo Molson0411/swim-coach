@@ -6,6 +6,7 @@ import {
   Firestore,
   getFirestore,
 } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 
 type AuthenticatedUser = {
   uid: string;
@@ -36,12 +37,13 @@ function getFirebaseAdminApp() {
         clientEmail: parsed.client_email,
         privateKey: parsed.private_key.replace(/\\n/g, "\n"),
       }),
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || `${parsed.project_id}.firebasestorage.app`,
     });
   }
 
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
 
   const missing = [
     !projectId ? "FIREBASE_PROJECT_ID" : "",
@@ -59,11 +61,16 @@ function getFirebaseAdminApp() {
       clientEmail,
       privateKey,
     }),
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET || `${projectId}.firebasestorage.app`,
   });
 }
 
 export function getAdminDb(): Firestore {
   return getFirestore(getFirebaseAdminApp());
+}
+
+export function getAdminStorageBucket() {
+  return getStorage(getFirebaseAdminApp()).bucket();
 }
 
 export { FieldValue };
@@ -92,7 +99,7 @@ export async function assertUserHasCredits(uid: string) {
   const freeCredits = snapshot.data()?.freeCredits;
 
   if (typeof freeCredits !== "number" || freeCredits <= 0) {
-    throw new Error("免費額度已用完");
+    throw new Error("免費額度已用完。");
   }
 }
 
@@ -105,7 +112,7 @@ export async function debitUserCredit(uid: string) {
     const freeCredits = snapshot.data()?.freeCredits;
 
     if (typeof freeCredits !== "number" || freeCredits <= 0) {
-      throw new Error("免費額度已用完");
+      throw new Error("免費額度已用完。");
     }
 
     transaction.update(userRef, {

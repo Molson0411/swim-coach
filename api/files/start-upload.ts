@@ -1,12 +1,19 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { randomUUID } from "node:crypto";
 import { setCorsHeaders } from "../cors";
-import { assertUserHasCredits, verifyFirebaseToken } from "../firebase-admin";
+import {
+  assertUserHasCredits,
+  getAdminStorageBucket,
+  verifyFirebaseToken,
+} from "../firebase-admin";
 
 const MAX_VIDEO_BYTES = 1024 * 1024 * 1024;
+const SIGNED_URL_TTL_MS = 15 * 60 * 1000;
+const NO_CREDITS_MESSAGE = "免費額度已用完。";
 
 type StartUploadBody = {
-  displayName?: string;
-  mimeType?: string;
+  fileName?: string;
+  contentType?: string;
   size?: number;
 };
 
@@ -48,74 +55,79 @@ async function handleStartUpload(req: VercelRequest) {
   const user = await verifyFirebaseToken(req);
   await assertUserHasCredits(user.uid);
 
-  const { displayName, mimeType, size } = req.body as StartUploadBody;
+  const { fileName, contentType, size } = req.body as StartUploadBody;
 
-  if (!displayName || !mimeType || typeof size !== "number") {
-    throw new BadRequestError("displayName, mimeType and size are required.");
+  if (!fileName || !contentType) {
+    throw new BadRequestError("fileName and contentType are required.");
   }
 
-  if (!mimeType.startsWith("video/")) {
+  if (!contentType.startsWith("video/")) {
     throw new BadRequestError("Only video uploads are supported.");
   }
 
-  if (size <= 0 || size > MAX_VIDEO_BYTES) {
+  if (typeof size === "number" && (size <= 0 || size > MAX_VIDEO_BYTES)) {
     throw new BadRequestError("Video must be 1GB or smaller.");
   }
 
-  return startGeminiFileUpload({ displayName, mimeType, size });
+  return createStorageSignedUploadUrl({
+    uid: user.uid,
+    fileName,
+    contentType,
+  });
 }
 
-async function startGeminiFileUpload(input: {
-  displayName: string;
-  mimeType: string;
-  size: number;
+async function createStorageSignedUploadUrl(input: {
+  uid: string;
+  fileName: string;
+  contentType: string;
 }) {
-  const apiKey = process.env.GEMINI_API_KEY || "";
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not configured on the server.");
-  }
+  const bucket = getAdminStorageBucket();
+  const storagePath = [
+    "uploads",
+    input.uid,
+    `${Date.now()}-${randomUUID()}-${sanitizeFileName(input.fileName)}`,
+  ].join("/");
+  const expiresAt = Date.now() + SIGNED_URL_TTL_MS;
+  const file = bucket.file(storagePath);
 
-  const response = await fetch("https://generativelanguage.googleapis.com/upload/v1beta/files", {
-    method: "POST",
-    headers: {
-      "x-goog-api-key": apiKey,
-      "X-Goog-Upload-Protocol": "resumable",
-      "X-Goog-Upload-Command": "start",
-      "X-Goog-Upload-Header-Content-Length": String(input.size),
-      "X-Goog-Upload-Header-Content-Type": input.mimeType,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      file: {
-        display_name: input.displayName,
-      },
-    }),
+  const [uploadUrl] = await file.getSignedUrl({
+    action: "write",
+    version: "v4",
+    expires: expiresAt,
+    contentType: input.contentType,
   });
 
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Gemini file upload session failed (${response.status}): ${detail}`);
-  }
+  return {
+    uploadUrl,
+    storagePath,
+    bucket: bucket.name,
+    expiresAt: new Date(expiresAt).toISOString(),
+    method: "PUT",
+    headers: {
+      "Content-Type": input.contentType,
+    },
+  };
+}
 
-  const uploadUrl = response.headers.get("x-goog-upload-url");
-  if (!uploadUrl) {
-    throw new Error("Gemini did not return an upload URL.");
-  }
-
-  return { uploadUrl };
+function sanitizeFileName(fileName: string) {
+  return fileName
+    .replace(/[/\\?%*:|"<>]/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 120) || "video";
 }
 
 function getErrorStatus(message: string) {
-  if (message === "免費額度已用完") {
+  if (message === NO_CREDITS_MESSAGE) {
     return 402;
   }
 
-  if (message.includes("Firebase ID token")) {
+  if (message.includes("Firebase ID token") || message.includes("Missing Firebase ID token")) {
     return 401;
   }
 
   if (
-    message.includes("displayName, mimeType and size are required") ||
+    message.includes("fileName and contentType are required") ||
     message.includes("Only video uploads are supported") ||
     message.includes("Video must be 1GB or smaller")
   ) {

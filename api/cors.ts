@@ -9,9 +9,6 @@ const ALLOWED_HEADERS = [
   "Authorization",
   "Content-Type",
   "X-Requested-With",
-  "X-Upload-Url",
-  "X-Upload-Offset",
-  "X-Upload-Command",
 ].join(",");
 
 export function setCorsHeaders(req: VercelRequest, res: VercelResponse) {

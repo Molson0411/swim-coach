@@ -313,8 +313,8 @@ function AppContent() {
         : null;
 
       const result = await analyzeSwim(mode, {
-        videoFileUri: uploadedVideo?.uri,
-        videoFileName: uploadedVideo?.name,
+        videoStoragePath: uploadedVideo?.storagePath,
+        videoStorageBucket: uploadedVideo?.bucket,
         videoMimeType: uploadedVideo?.mimeType,
         textInput: mode === 'A' ? textInput : undefined,
         event: mode === 'A' ? eventA : undefined,

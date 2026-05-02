@@ -45,6 +45,8 @@ type AnalyzeInputs = {
   videoFileUri?: string;
   videoFileName?: string;
   videoMimeType?: string;
+  videoStoragePath?: string;
+  videoStorageBucket?: string;
   textInput?: string;
   event?: string;
   raceEntries?: {
@@ -55,6 +57,8 @@ type AnalyzeInputs = {
     splits?: string;
   }[];
 };
+
+const NO_CREDITS_MESSAGE = "免費額度已用完。";
 
 const SYSTEM_INSTRUCTION = `你是一位專業游泳教練與運動數據分析師，請使用繁體中文回答。
 模式 A：分析影片、文字描述與游泳項目，輸出動作觀察、主要問題與訓練建議。
@@ -101,8 +105,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   } catch (error) {
     console.error("Analyze API error:", error);
-    const message = error instanceof Error ? error.message : "Failed to analyze swim data.";
-    const status = message.includes("Firebase ID token") ? 401 : message === "免費額度已用完" ? 402 : 500;
+    const message = normalizeErrorMessage(error);
+    const status = getErrorStatus(message);
     res.status(status).json({ error: message });
   }
 }
@@ -230,7 +234,8 @@ function buildPrompt(mode: AnalysisMode, inputs: AnalyzeInputs) {
 輸入模式 A：影片與動作分析
 游泳項目：${inputs.event || "未提供"}
 使用者補充描述：${inputs.textInput || "未提供"}
-影片狀態：${inputs.videoFileUri || inputs.videoBase64 ? "已提供影片" : "未提供影片"}`;
+影片狀態：${buildVideoState(inputs)}
+請注意：若只提供 Firebase Storage path 而沒有 Gemini file_uri，代表影片已由使用者直接上傳到 Storage，但此 Serverless 分析要求不會轉發影片位元組。請根據可用文字資料保守分析，並在 missingData 註明「需要可供模型讀取的影片內容」。`;
   }
 
   return `${schema}
@@ -241,10 +246,50 @@ ${inputs.raceEntries?.map((entry, index) => (
 )).join("\n") || "未提供數據"}`;
 }
 
+function buildVideoState(inputs: AnalyzeInputs) {
+  if (inputs.videoFileUri || inputs.videoBase64) {
+    return "已提供可供模型讀取的影片";
+  }
+
+  if (inputs.videoStoragePath) {
+    return `影片已上傳至 Firebase Storage：gs://${inputs.videoStorageBucket || "bucket"}/${inputs.videoStoragePath}`;
+  }
+
+  return "未提供影片";
+}
+
 function stripCodeFence(value: string) {
   return value
     .replace(/^```json\s*/i, "")
     .replace(/^```\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
+}
+
+function normalizeErrorMessage(error: unknown) {
+  if (!(error instanceof Error)) {
+    return "Failed to analyze swim data.";
+  }
+
+  if (error.message.includes("Firebase ID token")) {
+    return error.message;
+  }
+
+  if (error.message.includes("免費額度") || error.message.includes("憿")) {
+    return NO_CREDITS_MESSAGE;
+  }
+
+  return error.message;
+}
+
+function getErrorStatus(message: string) {
+  if (message.includes("Firebase ID token") || message.includes("Missing Firebase ID token")) {
+    return 401;
+  }
+
+  if (message === NO_CREDITS_MESSAGE) {
+    return 402;
+  }
+
+  return 500;
 }

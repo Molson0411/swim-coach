@@ -7,6 +7,8 @@ type AnalyzeInputs = {
   videoFileUri?: string;
   videoFileName?: string;
   videoMimeType?: string;
+  videoStoragePath?: string;
+  videoStorageBucket?: string;
   textInput?: string;
   event?: string;
   raceEntries?: {
@@ -20,22 +22,19 @@ type AnalyzeInputs = {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 const MAX_VIDEO_BYTES = 1024 * 1024 * 1024;
-const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
-const MAX_UPLOAD_RETRIES = 3;
 
-type GeminiUploadedFile = {
-  name: string;
-  uri: string;
+type StorageUploadedFile = {
+  storagePath: string;
+  bucket: string;
   mimeType: string;
 };
 
-type GeminiUploadResponse = {
-  file?: {
-    name?: string;
-    uri?: string;
-    mimeType?: string;
-    mime_type?: string;
-  };
+type StorageUploadSession = {
+  uploadUrl: string;
+  storagePath: string;
+  bucket: string;
+  method: "PUT";
+  headers?: Record<string, string>;
 };
 
 export async function analyzeSwim(
@@ -61,7 +60,7 @@ export async function analyzeSwim(
   return response.json() as Promise<AnalysisReport>;
 }
 
-export async function uploadVideoForAnalysis(file: File): Promise<GeminiUploadedFile> {
+export async function uploadVideoForAnalysis(file: File): Promise<StorageUploadedFile> {
   if (file.size > MAX_VIDEO_BYTES) {
     throw new Error("影片大小不可超過 1GB。");
   }
@@ -75,8 +74,8 @@ export async function uploadVideoForAnalysis(file: File): Promise<GeminiUploaded
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      displayName: file.name,
-      mimeType,
+      fileName: file.name,
+      contentType: mimeType,
       size: file.size,
     }),
   });
@@ -86,24 +85,17 @@ export async function uploadVideoForAnalysis(file: File): Promise<GeminiUploaded
     throw new Error(error?.error || "Failed to start video upload.");
   }
 
-  const { uploadUrl } = await sessionResponse.json() as { uploadUrl?: string };
-  if (!uploadUrl) {
+  const uploadSession = await sessionResponse.json() as StorageUploadSession;
+  if (!uploadSession.uploadUrl || !uploadSession.storagePath) {
     throw new Error("Upload URL was not returned.");
   }
 
-  const uploadResult = await uploadFileInChunks({ file, token, uploadUrl });
-  const uploadedFile = uploadResult.file;
-  const uri = uploadedFile?.uri;
-  const name = uploadedFile?.name;
-
-  if (!uri || !name) {
-    throw new Error("Gemini did not return uploaded file metadata.");
-  }
+  await uploadFileToSignedUrl({ file, mimeType, uploadSession });
 
   return {
-    name,
-    uri,
-    mimeType: uploadedFile.mimeType || uploadedFile.mime_type || mimeType,
+    storagePath: uploadSession.storagePath,
+    bucket: uploadSession.bucket,
+    mimeType,
   };
 }
 
@@ -116,94 +108,29 @@ async function requireUserWithCredits() {
   const userSnapshot = await getDocFromServer(doc(db, "users", user.uid));
   const freeCredits = userSnapshot.data()?.freeCredits;
   if (typeof freeCredits !== "number" || freeCredits <= 0) {
-    throw new Error("免費額度已用完");
+    throw new Error("免費額度已用完。");
   }
 
   const token = await user.getIdToken();
   return { user, token };
 }
 
-async function uploadFileInChunks(input: {
+async function uploadFileToSignedUrl(input: {
   file: File;
-  token: string;
-  uploadUrl: string;
-}): Promise<GeminiUploadResponse> {
-  let offset = 0;
-  let lastResponse: GeminiUploadResponse | null = null;
-
-  while (offset < input.file.size) {
-    const end = Math.min(offset + MAX_CHUNK_BYTES, input.file.size);
-    const chunk = input.file.slice(offset, end);
-    const isFinalChunk = end >= input.file.size;
-
-    lastResponse = await uploadChunkWithRetry({
-      chunk,
-      offset,
-      token: input.token,
-      uploadUrl: input.uploadUrl,
-      isFinalChunk,
-    });
-
-    offset = end;
-  }
-
-  if (!lastResponse?.file) {
-    throw new Error("Gemini did not return uploaded file metadata.");
-  }
-
-  return lastResponse;
-}
-
-async function uploadChunkWithRetry(input: {
-  chunk: Blob;
-  offset: number;
-  token: string;
-  uploadUrl: string;
-  isFinalChunk: boolean;
-}): Promise<GeminiUploadResponse> {
-  let lastError: unknown;
-
-  for (let attempt = 1; attempt <= MAX_UPLOAD_RETRIES; attempt += 1) {
-    try {
-      return await uploadChunk(input);
-    } catch (error) {
-      lastError = error;
-      if (attempt < MAX_UPLOAD_RETRIES) {
-        await delay(500 * attempt);
-      }
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error("Video chunk upload failed.");
-}
-
-async function uploadChunk(input: {
-  chunk: Blob;
-  offset: number;
-  token: string;
-  uploadUrl: string;
-  isFinalChunk: boolean;
-}): Promise<GeminiUploadResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/files/upload-chunk`, {
-    method: "POST",
+  mimeType: string;
+  uploadSession: StorageUploadSession;
+}) {
+  const response = await fetch(input.uploadSession.uploadUrl, {
+    method: input.uploadSession.method || "PUT",
     headers: {
-      "Authorization": `Bearer ${input.token}`,
-      "Content-Type": "application/octet-stream",
-      "X-Upload-Url": input.uploadUrl,
-      "X-Upload-Offset": String(input.offset),
-      "X-Upload-Command": input.isFinalChunk ? "upload, finalize" : "upload",
+      "Content-Type": input.mimeType,
+      ...(input.uploadSession.headers || {}),
     },
-    body: input.chunk,
+    body: input.file,
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => null);
-    throw new Error(error?.error || `Video chunk upload failed (${response.status}).`);
+    const detail = await response.text().catch(() => "");
+    throw new Error(`影片上傳到 Firebase Storage 失敗 (${response.status})：${detail}`);
   }
-
-  return response.json() as Promise<GeminiUploadResponse>;
-}
-
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

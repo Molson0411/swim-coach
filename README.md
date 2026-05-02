@@ -14,7 +14,7 @@ React + Vite + Firebase + Gemini API 的游泳影片與數據分析工具。
 - `firebase-applet-config.ts`：Firebase Web app fallback config，目前指向 `swimcoach-e7ddf`。
 - `src/services/gemini.ts`：前端呼叫自己的 API proxy，不直接碰 Gemini API key。
 - `api/analyze.ts`：Vercel Serverless Function，負責呼叫 Gemini 分析。
-- `api/files/start-upload.ts`：Vercel Serverless Function，建立 Gemini Files API 大檔上傳 session。
+- `api/files/start-upload.ts`：Vercel Serverless Function，建立 Firebase Storage Signed URL，前端用 PUT 直傳影片。
 - `server/`：本機或 Node host 可用的 Express API proxy。
 - `.github/workflows/deploy.yml`：GitHub Pages 自動部署流程。
 
@@ -106,27 +106,29 @@ GitHub Actions build 時會把 `VITE_API_BASE_URL` 注入 Vite 前端 bundle。
 
 ## 1GB 影片上傳流程
 
-Vercel Function 的 request body 不適合直接接收大影片，所以專案不再使用 base64 JSON 上傳影片。
+Vercel Serverless Function 有 payload 與執行時間限制，不適合接收或轉發大型影片。專案採用 Signed URL Direct Upload：
 
 目前流程：
 
 1. 使用者在前端選擇影片。
 2. 前端檢查檔案型別必須是 `video/*`，大小不可超過 1GB，並確認使用者 `freeCredits > 0`。
-3. 前端帶 Firebase ID token 呼叫 `/api/files/start-upload`。
-4. 後端驗證 Firebase ID token 與額度後，使用 Gemini API key 建立 Gemini Files API resumable upload session。
-5. 前端將影片切成不大於 4MB 的 chunk，依序帶 Firebase ID token 呼叫 `/api/files/upload-chunk`。
-6. 後端驗證 Firebase ID token 與額度後，代為把 chunk 轉發到 Gemini upload URL；每個 chunk 前端最多重試 3 次。
-7. 最後一個 chunk 使用 `upload, finalize`，Gemini 回傳 `file_uri`。
-8. 前端呼叫 `/api/analyze`，把 `file_uri`、mime type、文字描述與項目送給後端。
-9. 後端驗證 Firebase ID token，使用 Firestore transaction 先扣 `freeCredits - 1`，再呼叫 Gemini；若 Gemini 失敗則補回 1 點。
-10. 後端等待 Gemini file 進入 `ACTIVE` 狀態後，再呼叫 Gemini model 做分析。
+3. 前端帶 Firebase ID token 呼叫 `/api/files/start-upload`，只送 `fileName`、`contentType`、`size`，不送影片實體。
+4. 後端驗證 Firebase ID token 與額度後，使用 Firebase Admin SDK 對 Firebase Storage 產生 15 分鐘有效的 V4 Signed URL。
+5. 前端使用原生 `fetch` 搭配 `PUT`，將影片檔案直接上傳到 Signed URL。
+6. 前端取得 `storagePath` 後呼叫 `/api/analyze`，把 Storage path、mime type、文字描述與項目送給後端。
+7. 後端驗證 Firebase ID token，使用 Firestore transaction 先扣 `freeCredits - 1`，再呼叫 Gemini；若 Gemini 失敗則補回 1 點。
 
 這樣可以避免：
 
 - 前端把大影片轉成 base64 造成記憶體暴增。
-- Vercel API route 收到超大 request body。
-- 瀏覽器因 CORS 無法直接呼叫 Gemini upload URL。
+- Vercel API route 收到或轉發超大 request body。
 - Gemini API key 暴露在前端。
+
+重要限制：
+
+- Firebase Storage Signed URL 解決的是「大檔上傳」問題。
+- Gemini Developer API 的影片模型輸入仍需要 Gemini Files API 的 `file_uri`，不能直接把私人 Firebase Storage path 當成影片內容。
+- 若要讓 Gemini 實際讀取 Firebase Storage 影片，建議下一階段新增 Cloud Run / Cloud Functions 背景工作者，從 Storage 事件觸發後把影片匯入 Gemini Files API，或改用 Vertex AI + GCS URI。
 
 ## GitHub Pages 部署
 
@@ -164,7 +166,23 @@ Vercel 負責 API proxy：
 
 1. Vercel project 連到此 GitHub repo，或手動用 Vercel CLI 部署。
 2. 在 Vercel Project Settings > Environment Variables 加入 `GEMINI_API_KEY`。
-3. Production deployment 完成後，API base URL 設為：
+3. 設定 Firebase Admin SDK 用的 service account。建議使用單一 JSON 環境變數：
+
+```text
+FIREBASE_SERVICE_ACCOUNT={"type":"service_account",...}
+FIREBASE_STORAGE_BUCKET=swimcoach-e7ddf.firebasestorage.app
+```
+
+也可以改用三個拆開的環境變數：
+
+```text
+FIREBASE_PROJECT_ID=swimcoach-e7ddf
+FIREBASE_CLIENT_EMAIL=...
+FIREBASE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n
+FIREBASE_STORAGE_BUCKET=swimcoach-e7ddf.firebasestorage.app
+```
+
+4. Production deployment 完成後，API base URL 設為：
 
 ```text
 https://swim-coach-main.vercel.app
@@ -177,6 +195,68 @@ curl -X POST https://swim-coach-main.vercel.app/api/analyze \
   -H "Authorization: Bearer <Firebase_ID_Token>" \
   -H "Content-Type: application/json" \
   -d "{\"mode\":\"B\",\"inputs\":{\"raceEntries\":[{\"event\":\"50 free\",\"time\":\"30\",\"poolLength\":\"50\"}]}}"
+```
+
+## Firebase Storage CORS
+
+前端使用 Signed URL 直接 PUT 到 Firebase Storage 時，Storage bucket 必須允許網站來源做 CORS request。本專案已提供 `cors.json`：
+
+```json
+[
+  {
+    "origin": [
+      "https://molson0411.github.io",
+      "http://localhost:3000",
+      "http://127.0.0.1:3000"
+    ],
+    "method": ["PUT", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "x-goog-resumable"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
+```
+
+設定步驟：
+
+1. 安裝或開啟 Google Cloud CLI。
+2. 登入：
+
+```bash
+gcloud auth login
+```
+
+3. 切換專案：
+
+```bash
+gcloud config set project swimcoach-e7ddf
+```
+
+4. 套用 CORS 到 Firebase Storage bucket：
+
+```bash
+gcloud storage buckets update gs://swimcoach-e7ddf.firebasestorage.app --cors-file=cors.json
+```
+
+若你的 bucket 實際名稱是舊格式，請改用：
+
+```bash
+gcloud storage buckets update gs://swimcoach-e7ddf.appspot.com --cors-file=cors.json
+```
+
+5. 檢查設定：
+
+```bash
+gcloud storage buckets describe gs://swimcoach-e7ddf.firebasestorage.app --format="default(cors_config)"
+```
+
+舊版 `gsutil` 也可以使用：
+
+```bash
+gsutil cors set cors.json gs://swimcoach-e7ddf.firebasestorage.app
+gsutil cors get gs://swimcoach-e7ddf.firebasestorage.app
 ```
 
 ## 常用操作紀錄
@@ -259,6 +339,14 @@ curl -X POST https://swim-coach-main.vercel.app/api/analyze \
 - `api/firebase-admin.ts` 會明確列出缺少的 Firebase Admin env：`FIREBASE_PROJECT_ID`、`FIREBASE_CLIENT_EMAIL`、`FIREBASE_PRIVATE_KEY`，也支援單一 `FIREBASE_SERVICE_ACCOUNT` JSON。
 - `FIREBASE_PRIVATE_KEY` 與 `FIREBASE_SERVICE_ACCOUNT.private_key` 都會處理 `.replace(/\\n/g, "\n")`。
 - 已執行 `npm run lint` 與 `npm run build` 通過；build 需在沙盒外執行以避開 Windows/OneDrive `spawn EPERM`。
+
+### 2026-05-02：改為 Firebase Storage Signed URL 直傳
+
+- 移除 `/api/files/upload-chunk`，避免 Vercel Serverless Function 接收或轉發影片 chunk。
+- `/api/files/start-upload` 現在只接收 `fileName`、`contentType`、`size`，並用 Firebase Admin SDK 產生 Firebase Storage V4 signed PUT URL。
+- 前端 `uploadVideoForAnalysis` 會直接 `PUT` 影片到 signed URL，完成後回傳 `storagePath` 與 bucket。
+- 新增 `cors.json`，用於設定 Firebase Storage bucket CORS，允許 GitHub Pages 與 localhost 直接 PUT。
+- `api/cors.ts` 移除舊 chunk proxy 專用 headers：`X-Upload-Url`、`X-Upload-Offset`、`X-Upload-Command`。
 
 更新 Firebase config 後：
 

@@ -13,7 +13,7 @@
         },
         {
           "key": "Access-Control-Allow-Headers",
-          "value": "Authorization, Content-Type, X-Requested-With, X-Upload-Url, X-Upload-Offset, X-Upload-Command"
+          "value": "Authorization, Content-Type, X-Requested-With"
         },
         {
           "key": "Access-Control-Max-Age",
