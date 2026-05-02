@@ -53,8 +53,6 @@ type AnalyzeInputs = {
   }[];
 };
 
-const NO_CREDITS_MESSAGE = "免費額度已用完。";
-
 const SYSTEM_INSTRUCTION = `你是一位專業游泳教練與運動數據分析師，請使用繁體中文回答。
 模式 A：分析影片、文字描述與游泳項目，輸出動作觀察、主要問題與訓練建議。
 模式 B：分析比賽或訓練數據，估算 SWOLF、DPS、CSS 與訓練方向。
@@ -76,12 +74,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const {
-      debitUserCredit,
-      refundUserCredit,
-      verifyFirebaseToken,
-    } = await import("./firebase-admin");
-    const user = await verifyFirebaseToken(req);
     const { mode, inputs } = req.body as {
       mode?: AnalysisMode;
       inputs?: AnalyzeInputs;
@@ -92,22 +84,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    await debitUserCredit(user.uid);
-
-    try {
-      const report = await analyzeWithGemini(mode, inputs || {});
-      res.status(200).json(report);
-    } catch (error) {
-      await refundUserCredit(user.uid).catch((refundError) => {
-        console.error("Failed to refund user credit after Gemini error:", refundError);
-      });
-      throw error;
-    }
+    const report = await analyzeWithGemini(mode, inputs || {});
+    res.status(200).json(report);
   } catch (error) {
     console.error("Analyze API error:", error);
-    const message = normalizeErrorMessage(error);
-    const status = getErrorStatus(message);
-    res.status(status).json({ error: message });
+    const message = error instanceof Error ? error.message : "Failed to analyze swim data.";
+    res.status(500).json({ error: message });
   }
 }
 
@@ -122,28 +104,6 @@ async function analyzeWithGemini(
 
   const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
   const parts: unknown[] = [];
-
-  if (inputs.videoFileName) {
-    await waitForGeminiFileActive(inputs.videoFileName, apiKey);
-  }
-
-  if (inputs.videoFileUri) {
-    parts.push({
-      file_data: {
-        mime_type: inputs.videoMimeType || "video/mp4",
-        file_uri: inputs.videoFileUri,
-      },
-    });
-  }
-
-  if (inputs.videoBase64) {
-    parts.push({
-      inline_data: {
-        mime_type: "video/mp4",
-        data: inputs.videoBase64,
-      },
-    });
-  }
 
   parts.push({ text: buildPrompt(mode, inputs) });
 
@@ -186,34 +146,6 @@ async function analyzeWithGemini(
   return JSON.parse(stripCodeFence(text)) as AnalysisReport;
 }
 
-async function waitForGeminiFileActive(fileName: string, apiKey: string) {
-  const name = fileName.replace(/^\/+/, "");
-  const deadline = Date.now() + 120_000;
-
-  while (Date.now() < deadline) {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/${name}?key=${encodeURIComponent(apiKey)}`
-    );
-
-    if (!response.ok) {
-      const detail = await response.text();
-      throw new Error(`Gemini file status failed (${response.status}): ${detail}`);
-    }
-
-    const data = await response.json() as { state?: string };
-    if (!data.state || data.state === "ACTIVE") {
-      return;
-    }
-    if (data.state === "FAILED") {
-      throw new Error("Gemini failed to process the uploaded video.");
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
-  }
-
-  throw new Error("Gemini is still processing the uploaded video. Please try again in a minute.");
-}
-
 function buildPrompt(mode: AnalysisMode, inputs: AnalyzeInputs) {
   const schema = `請嚴格輸出以下 JSON schema：
 {
@@ -235,7 +167,7 @@ function buildPrompt(mode: AnalysisMode, inputs: AnalyzeInputs) {
 游泳項目：${inputs.event || "未提供"}
 使用者補充描述：${inputs.textInput || "未提供"}
 影片狀態：${buildVideoState(inputs)}
-請注意：若只提供 Firebase Storage path 而沒有 Gemini file_uri，代表影片已由使用者直接上傳到 Storage，但此 Serverless 分析要求不會轉發影片位元組。請根據可用文字資料保守分析，並在 missingData 註明「需要可供模型讀取的影片內容」。`;
+請注意：目前影片已上傳到 Firebase Storage，但這個 Serverless API 不會轉發影片位元組。請根據文字資料保守分析，並在 missingData 註明「需要可供模型讀取的影片內容」。`;
   }
 
   return `${schema}
@@ -247,12 +179,12 @@ ${inputs.raceEntries?.map((entry, index) => (
 }
 
 function buildVideoState(inputs: AnalyzeInputs) {
-  if (inputs.videoFileUri || inputs.videoBase64) {
-    return "已提供可供模型讀取的影片";
-  }
-
   if (inputs.videoStoragePath) {
     return `影片已上傳至 Firebase Storage：gs://${inputs.videoStorageBucket || "bucket"}/${inputs.videoStoragePath}`;
+  }
+
+  if (inputs.videoFileUri || inputs.videoBase64) {
+    return "已提供影片";
   }
 
   return "未提供影片";
@@ -264,32 +196,4 @@ function stripCodeFence(value: string) {
     .replace(/^```\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
-}
-
-function normalizeErrorMessage(error: unknown) {
-  if (!(error instanceof Error)) {
-    return "Failed to analyze swim data.";
-  }
-
-  if (error.message.includes("Firebase ID token")) {
-    return error.message;
-  }
-
-  if (error.message.includes("免費額度") || error.message.includes("憿")) {
-    return NO_CREDITS_MESSAGE;
-  }
-
-  return error.message;
-}
-
-function getErrorStatus(message: string) {
-  if (message.includes("Firebase ID token") || message.includes("Missing Firebase ID token")) {
-    return 401;
-  }
-
-  if (message === NO_CREDITS_MESSAGE) {
-    return 402;
-  }
-
-  return 500;
 }
