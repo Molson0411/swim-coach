@@ -1,10 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { handleCorsPreflight, setCorsHeaders } from "./cors";
-import {
-  debitUserCredit,
-  refundUserCredit,
-  verifyFirebaseToken,
-} from "./firebase-admin";
 
 type AnalysisMode = "A" | "B";
 
@@ -81,6 +76,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    const {
+      debitUserCredit,
+      refundUserCredit,
+      verifyFirebaseToken,
+    } = await import("./firebase-admin");
     const user = await verifyFirebaseToken(req);
     const { mode, inputs } = req.body as {
       mode?: AnalysisMode;

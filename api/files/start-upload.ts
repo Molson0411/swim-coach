@@ -1,11 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { randomUUID } from "node:crypto";
 import { setCorsHeaders } from "../cors";
-import {
-  assertUserHasCredits,
-  getAdminStorageBucket,
-  verifyFirebaseToken,
-} from "../firebase-admin";
 
 const MAX_VIDEO_BYTES = 1024 * 1024 * 1024;
 const SIGNED_URL_TTL_MS = 15 * 60 * 1000;
@@ -52,6 +47,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 async function handleStartUpload(req: VercelRequest) {
+  const {
+    assertUserHasCredits,
+    getAdminStorageBucket,
+    verifyFirebaseToken,
+  } = await import("../firebase-admin");
   const user = await verifyFirebaseToken(req);
   await assertUserHasCredits(user.uid);
 
@@ -73,6 +73,7 @@ async function handleStartUpload(req: VercelRequest) {
     uid: user.uid,
     fileName,
     contentType,
+    getAdminStorageBucket,
   });
 }
 
@@ -80,8 +81,9 @@ async function createStorageSignedUploadUrl(input: {
   uid: string;
   fileName: string;
   contentType: string;
+  getAdminStorageBucket: typeof import("../firebase-admin").getAdminStorageBucket;
 }) {
-  const bucket = await getAdminStorageBucket();
+  const bucket = await input.getAdminStorageBucket();
   const storagePath = [
     "uploads",
     input.uid,
