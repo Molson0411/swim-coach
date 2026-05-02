@@ -1,5 +1,4 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { handleCorsPreflight, setCorsHeaders } from "./cors";
 
 type AnalysisMode = "A" | "B";
 
@@ -53,13 +52,13 @@ type AnalyzeInputs = {
   }[];
 };
 
-const SYSTEM_INSTRUCTION = `你是一位專業游泳教練與運動數據分析師，請使用繁體中文回答。
-模式 A：分析影片、文字描述與游泳項目，輸出動作觀察、主要問題與訓練建議。
-模式 B：分析比賽或訓練數據，估算 SWOLF、DPS、CSS 與訓練方向。
-規則：
-- 只能輸出符合指定 schema 的 JSON，不要輸出 Markdown 或額外說明。
-- 若資料不足，請在 missingData 列出缺少項目，並根據已有資料給出保守建議。
-- 建議要具體、可執行，訓練菜單可使用「組數 x 距離 項目 @ 配速/休息」格式。`;
+const SYSTEM_INSTRUCTION = [
+  "你是專業游泳教練與賽後數據分析師。",
+  "請只回傳符合 schema 的 JSON，不要使用 Markdown 或程式碼區塊。",
+  "模式 A 用於影片或文字動作分析，模式 B 用於游泳數據分析。",
+  "若缺少可判斷的資訊，請在 missingData 說明缺少什麼，並避免假裝已看過不存在的影片內容。",
+  "建議要具體、可執行，並用繁體中文回答。",
+].join("\n");
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setCorsHeaders(req, res);
@@ -103,10 +102,6 @@ async function analyzeWithGemini(
   }
 
   const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-  const parts: unknown[] = [];
-
-  parts.push({ text: buildPrompt(mode, inputs) });
-
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
     {
@@ -119,7 +114,7 @@ async function analyzeWithGemini(
         contents: [
           {
             role: "user",
-            parts,
+            parts: [{ text: buildPrompt(mode, inputs) }],
           },
         ],
         generationConfig: {
@@ -147,47 +142,60 @@ async function analyzeWithGemini(
 }
 
 function buildPrompt(mode: AnalysisMode, inputs: AnalyzeInputs) {
-  const schema = `請嚴格輸出以下 JSON schema：
+  const schema = `請回傳這個 JSON 結構：
 {
   "mode": "A 或 B",
   "impression": "整體印象",
-  "stroke": "判斷的泳姿或動作型態",
-  "findings": [{"metaphor": "好記的比喻", "analysis": "技術分析"}],
+  "stroke": "判斷泳姿",
+  "findings": [{"metaphor": "容易記住的比喻", "analysis": "問題與原因"}],
   "suggestions": [{"mnemonic": "口訣", "drill": {"name": "訓練名稱", "purpose": "訓練目的"}}],
-  "metrics": {"swolf": 0, "dps": 0, "css": "CSS 估算", "finaPoints": 0, "analysis": "數據解讀"},
-  "trainingPlan": {"warmup": "熱身", "drills": "技術訓練", "mainSet": "主課表", "coolDown": "緩和"},
-  "growthAdvice": "下一步成長建議",
+  "metrics": {"swolf": 0, "dps": 0, "css": "CSS 結果", "finaPoints": 0, "analysis": "數據解讀"},
+  "trainingPlan": {"warmup": "熱身", "drills": "技術組", "mainSet": "主課表", "coolDown": "緩和"},
+  "growthAdvice": "下一步建議",
   "missingData": []
 }`;
 
   if (mode === "A") {
     return `${schema}
 
-輸入模式 A：影片與動作分析
-游泳項目：${inputs.event || "未提供"}
-使用者補充描述：${inputs.textInput || "未提供"}
+分析模式 A：影片或文字動作分析
+事件或距離：${inputs.event || "未提供"}
+使用者補充：${inputs.textInput || "未提供"}
 影片狀態：${buildVideoState(inputs)}
-請注意：目前影片已上傳到 Firebase Storage，但這個 Serverless API 不會轉發影片位元組。請根據文字資料保守分析，並在 missingData 註明「需要可供模型讀取的影片內容」。`;
+
+重要限制：如果只有 Firebase Storage 路徑，而沒有可直接讀取的影片內容，請明確寫入 missingData，不要假裝已完成逐格影片判讀。仍可根據使用者文字與已提供資料給出保守建議。`;
   }
 
   return `${schema}
 
-輸入模式 B：數據與訓練分析
-${inputs.raceEntries?.map((entry, index) => (
-  `項目 ${index + 1}：${entry.event}，時間：${entry.time}，划手數：${entry.strokeCount || "未提供"}，泳池長度：${entry.poolLength}，分段：${entry.splits || "未提供"}`
-)).join("\n") || "未提供數據"}`;
+分析模式 B：數據分析
+${formatRaceEntries(inputs.raceEntries)}`;
+}
+
+function formatRaceEntries(entries: AnalyzeInputs["raceEntries"]) {
+  if (!entries || entries.length === 0) {
+    return "未提供成績資料。";
+  }
+
+  return entries.map((entry, index) => (
+    `資料 ${index + 1}：項目 ${entry.event}，時間 ${entry.time}，划手數 ${entry.strokeCount || "未提供"}，泳池長度 ${entry.poolLength}，分段 ${entry.splits || "未提供"}`
+  )).join("\n");
 }
 
 function buildVideoState(inputs: AnalyzeInputs) {
   if (inputs.videoStoragePath) {
-    return `影片已上傳至 Firebase Storage：gs://${inputs.videoStorageBucket || "bucket"}/${inputs.videoStoragePath}`;
+    return `已上傳到 Firebase Storage：gs://${inputs.videoStorageBucket || "bucket"}/${inputs.videoStoragePath}`;
   }
 
-  if (inputs.videoFileUri || inputs.videoBase64) {
-    return "已提供影片";
+  if (inputs.videoFileUri) {
+    return `已提供影片 URI：${inputs.videoFileUri}`;
   }
 
-  return "未提供影片";
+  if (inputs.videoBase64) {
+    return "已提供 base64 影片資料。";
+  }
+
+  return "未提供影片。";
 }
 
 function stripCodeFence(value: string) {
@@ -196,4 +204,47 @@ function stripCodeFence(value: string) {
     .replace(/^```\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
+}
+
+function setCorsHeaders(req: VercelRequest, res: VercelResponse) {
+  const origin = req.headers.origin;
+  const fallbackOrigin = "https://molson0411.github.io";
+
+  if (typeof origin === "string" && isAllowedOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", fallbackOrigin);
+  }
+
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,PATCH,DELETE,POST,PUT");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization,Content-Type,X-Requested-With");
+  res.setHeader("Access-Control-Max-Age", "86400");
+}
+
+function handleCorsPreflight(req: VercelRequest, res: VercelResponse) {
+  setCorsHeaders(req, res);
+
+  if (req.method === "OPTIONS") {
+    res.status(200).end();
+    return true;
+  }
+
+  return false;
+}
+
+function isAllowedOrigin(origin: string) {
+  if (origin === "https://molson0411.github.io") {
+    return true;
+  }
+
+  const extraOrigins = (process.env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  return extraOrigins.includes(origin)
+    || /^http:\/\/localhost:\d+$/.test(origin)
+    || /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)
+    || /^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin);
 }

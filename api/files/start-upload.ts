@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createHash, createSign, randomUUID } from "node:crypto";
-import { setCorsHeaders } from "../cors";
 
 const MAX_VIDEO_BYTES = 1024 * 1024 * 1024;
 const SIGNED_URL_TTL_SECONDS = 15 * 60;
@@ -248,4 +247,36 @@ function getErrorStatus(message: string) {
 
 class BadRequestError extends Error {
   name = "BadRequestError";
+}
+
+function setCorsHeaders(req: VercelRequest, res: VercelResponse) {
+  const origin = req.headers.origin;
+  const fallbackOrigin = "https://molson0411.github.io";
+
+  if (typeof origin === "string" && isAllowedOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", fallbackOrigin);
+  }
+
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,PATCH,DELETE,POST,PUT");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization,Content-Type,X-Requested-With");
+  res.setHeader("Access-Control-Max-Age", "86400");
+}
+
+function isAllowedOrigin(origin: string) {
+  if (origin === "https://molson0411.github.io") {
+    return true;
+  }
+
+  const extraOrigins = (process.env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  return extraOrigins.includes(origin)
+    || /^http:\/\/localhost:\d+$/.test(origin)
+    || /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)
+    || /^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin);
 }
