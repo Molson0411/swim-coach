@@ -220,6 +220,14 @@ curl -X POST https://swim-coach-main.vercel.app/api/analyze \
 - 若 env config 不完整或疑似錯誤，會直接使用 `firebase-applet-config.ts` 的 Firebase Web fallback key。
 - 已執行 `npm run lint` 與 `npm run build` 通過；build 需在沙盒外執行以避開 Windows/OneDrive `spawn EPERM`。
 
+### 2026-05-02：修復 Google 登入後 UI 狀態不更新
+
+- `App.tsx` 會先建立 `onAuthStateChanged` 監聽器，偵測到 Firebase user 時立即 `setUser` 並標記 auth ready。
+- `getRedirectResult` 回來時也會直接更新 React user state，避免 redirect 後仍顯示 LOGIN。
+- 登入流程改為優先 `signInWithPopup`，只有 popup 被瀏覽器擋住或環境不支援時才 fallback 到 redirect。
+- `src/firebase.ts` 登入前會設定 `browserLocalPersistence`，讓重新整理或 redirect 後仍保留 Auth 狀態。
+- 已執行 `npm run lint` 與 `npm run build` 通過；build 需在沙盒外執行以避開 Windows/OneDrive `spawn EPERM`。
+
 更新 Firebase config 後：
 
 ```bash

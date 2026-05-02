@@ -178,21 +178,36 @@ function AppContent() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    let isMounted = true;
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      if (!isMounted) return;
+      setUser(u);
+      setIsAuthReady(true);
+      if (u) {
+        setIsSigningIn(false);
+      }
+    });
+
     completeGoogleRedirectSignIn()
       .then((redirectUser) => {
-        if (redirectUser) {
+        if (redirectUser && isMounted) {
+          setUser(redirectUser);
+          setIsAuthReady(true);
+          setIsSigningIn(false);
           toast.success('登入成功');
         }
       })
       .catch((error) => {
+        if (!isMounted) return;
+        setIsAuthReady(true);
+        setIsSigningIn(false);
         toast.error(getAuthErrorMessage(error));
       });
 
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setIsAuthReady(true);
-    });
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
   const handleSignIn = async () => {
@@ -207,10 +222,9 @@ function AppContent() {
     setIsSigningIn(true);
     const toastId = toast.loading('正在開啟 Google 登入...');
     try {
-      const shouldUseRedirect = window.location.hostname !== 'localhost'
-        && window.location.hostname !== '127.0.0.1';
-      const signedInUser = await signInWithGoogle({ redirect: shouldUseRedirect });
+      const signedInUser = await signInWithGoogle();
       if (signedInUser) {
+        setUser(signedInUser);
         toast.success('登入成功', { id: toastId });
       } else {
         toast.info('正在前往 Google 登入...', { id: toastId });

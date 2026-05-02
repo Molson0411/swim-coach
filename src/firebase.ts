@@ -1,8 +1,10 @@
 import { FirebaseOptions, initializeApp } from 'firebase/app';
 import {
+  browserLocalPersistence,
   getAuth,
   getRedirectResult,
   GoogleAuthProvider,
+  setPersistence,
   signInWithPopup,
   signInWithRedirect,
   signOut,
@@ -103,8 +105,6 @@ function shouldFallbackToRedirect(error: unknown) {
     : '';
   return [
     'auth/popup-blocked',
-    'auth/popup-closed-by-user',
-    'auth/cancelled-popup-request',
     'auth/operation-not-supported-in-this-environment'
   ].includes(code);
 }
@@ -136,6 +136,7 @@ export const getAuthErrorMessage = (error: unknown) => {
 };
 
 export const completeGoogleRedirectSignIn = async () => {
+  await setPersistence(auth, browserLocalPersistence);
   const result = await getRedirectResult(auth);
   if (!result?.user) {
     return null;
@@ -145,6 +146,8 @@ export const completeGoogleRedirectSignIn = async () => {
 };
 
 export const signInWithGoogle = async (options: { redirect?: boolean } = {}) => {
+  await setPersistence(auth, browserLocalPersistence);
+
   if (options.redirect) {
     await signInWithRedirect(auth, googleProvider);
     return null;
