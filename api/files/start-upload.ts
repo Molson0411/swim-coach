@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { handleCorsPreflight, setCorsHeaders } from "../cors";
+import { setCorsHeaders } from "../cors";
 import { assertUserHasCredits, verifyFirebaseToken } from "../firebase-admin";
 
 const MAX_VIDEO_BYTES = 1024 * 1024 * 1024;
@@ -7,7 +7,8 @@ const MAX_VIDEO_BYTES = 1024 * 1024 * 1024;
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setCorsHeaders(req, res);
 
-  if (handleCorsPreflight(req, res)) {
+  if (req.method === "OPTIONS") {
+    res.status(200).end();
     return;
   }
 

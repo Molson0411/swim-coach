@@ -246,6 +246,12 @@ curl -X POST https://swim-coach-main.vercel.app/api/analyze \
 - 允許 headers：`Authorization, Content-Type, X-Requested-With, X-Upload-Url, X-Upload-Offset, X-Upload-Command`。
 - 已執行 `npm run lint` 與 `npm run build` 通過；build 需在沙盒外執行以避開 Windows/OneDrive `spawn EPERM`。
 
+### 2026-05-02：強化 start-upload OPTIONS 預檢回應
+
+- `/api/files/start-upload` 現在於 handler 最頂端明確攔截 `OPTIONS`，直接回傳 HTTP `200` 與 CORS headers。
+- `vercel.json` 的 API headers source 改為 `/api/:path*`，提高 Vercel 平台層套用 headers 的相容性。
+- 已執行 `npm run lint` 與 `npm run build` 通過；build 需在沙盒外執行以避開 Windows/OneDrive `spawn EPERM`。
+
 更新 Firebase config 後：
 
 ```bash
