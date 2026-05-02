@@ -252,6 +252,14 @@ curl -X POST https://swim-coach-main.vercel.app/api/analyze \
 - `vercel.json` 的 API headers source 改為 `/api/:path*`，提高 Vercel 平台層套用 headers 的相容性。
 - 已執行 `npm run lint` 與 `npm run build` 通過；build 需在沙盒外執行以避開 Windows/OneDrive `spawn EPERM`。
 
+### 2026-05-02：強化 start-upload 500 錯誤診斷
+
+- `/api/files/start-upload` 主要邏輯已包在最外層 `try...catch`。
+- catch 會輸出 `console.error("API Crash Error:", error)`，並回傳 JSON：`message`、`error`、`name`，方便從瀏覽器與 Vercel logs 看見真正原因。
+- `api/firebase-admin.ts` 會明確列出缺少的 Firebase Admin env：`FIREBASE_PROJECT_ID`、`FIREBASE_CLIENT_EMAIL`、`FIREBASE_PRIVATE_KEY`，也支援單一 `FIREBASE_SERVICE_ACCOUNT` JSON。
+- `FIREBASE_PRIVATE_KEY` 與 `FIREBASE_SERVICE_ACCOUNT.private_key` 都會處理 `.replace(/\\n/g, "\n")`。
+- 已執行 `npm run lint` 與 `npm run build` 通過；build 需在沙盒外執行以避開 Windows/OneDrive `spawn EPERM`。
+
 更新 Firebase config 後：
 
 ```bash
