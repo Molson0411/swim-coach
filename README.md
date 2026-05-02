@@ -334,3 +334,10 @@ Google 登入顯示 API key 或 project mismatch：
 
 - `.env.example`
 - `firebase-applet-config.ts`，Firebase Web fallback config 會被前端使用，不是 Gemini API key。
+
+## 2026-05-02 Firebase Admin Private Key Update
+
+- Confirmed Firebase Admin initialization in `api/firebase-admin.ts`.
+- Updated `FIREBASE_PRIVATE_KEY` handling to use `process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')` so Vercel escaped newlines are converted back to real newlines.
+- Confirmed `FIREBASE_SERVICE_ACCOUNT.private_key` also keeps newline replacement handling.
+- Verification: `npm.cmd run lint` passed.
