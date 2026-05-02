@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { createHash, createSign } from "node:crypto";
 
 type AnalysisMode = "A" | "B";
 
@@ -52,12 +53,26 @@ type AnalyzeInputs = {
   }[];
 };
 
+type GeminiPart =
+  | { text: string }
+  | { inline_data: { mime_type: string; data: string } };
+
+type ServiceAccount = {
+  projectId: string;
+  clientEmail: string;
+  privateKey: string;
+};
+
+const MAX_INLINE_VIDEO_BYTES = 18 * 1024 * 1024;
+const SIGNED_URL_TTL_SECONDS = 10 * 60;
+
 const SYSTEM_INSTRUCTION = [
-  "你是專業游泳教練與賽後數據分析師。",
-  "請只回傳符合 schema 的 JSON，不要使用 Markdown 或程式碼區塊。",
-  "模式 A 用於影片或文字動作分析，模式 B 用於游泳數據分析。",
-  "若缺少可判斷的資訊，請在 missingData 說明缺少什麼，並避免假裝已看過不存在的影片內容。",
-  "建議要具體、可執行，並用繁體中文回答。",
+  "You are a professional swimming coach and race data analyst.",
+  "Always answer in Traditional Chinese.",
+  "Return JSON only. Do not use Markdown or code fences.",
+  "For mode A, analyze the supplied swimming video if video bytes are provided.",
+  "For mode B, analyze race or training metrics.",
+  "If the available data is insufficient, list the missing fields in missingData and avoid pretending you saw details that are not visible.",
 ].join("\n");
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -102,6 +117,8 @@ async function analyzeWithGemini(
   }
 
   const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const parts = await buildGeminiParts(mode, inputs);
+
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
     {
@@ -114,7 +131,7 @@ async function analyzeWithGemini(
         contents: [
           {
             role: "user",
-            parts: [{ text: buildPrompt(mode, inputs) }],
+            parts,
           },
         ],
         generationConfig: {
@@ -141,61 +158,222 @@ async function analyzeWithGemini(
   return JSON.parse(stripCodeFence(text)) as AnalysisReport;
 }
 
+async function buildGeminiParts(mode: AnalysisMode, inputs: AnalyzeInputs): Promise<GeminiPart[]> {
+  const parts: GeminiPart[] = [{ text: buildPrompt(mode, inputs) }];
+
+  if (mode === "A") {
+    const videoPart = await getVideoPart(inputs);
+    if (videoPart) {
+      parts.push(videoPart);
+    }
+  }
+
+  return parts;
+}
+
+async function getVideoPart(inputs: AnalyzeInputs): Promise<GeminiPart | null> {
+  const mimeType = inputs.videoMimeType || "video/mp4";
+
+  if (inputs.videoBase64) {
+    return {
+      inline_data: {
+        mime_type: mimeType,
+        data: inputs.videoBase64,
+      },
+    };
+  }
+
+  if (!inputs.videoStoragePath) {
+    return null;
+  }
+
+  const bucket = inputs.videoStorageBucket || process.env.FIREBASE_STORAGE_BUCKET;
+  if (!bucket) {
+    throw new Error("videoStorageBucket or FIREBASE_STORAGE_BUCKET is required to read uploaded video.");
+  }
+
+  const serviceAccount = getServiceAccount();
+  const readUrl = createV4SignedUrl({
+    method: "GET",
+    bucket,
+    objectName: inputs.videoStoragePath,
+    serviceAccount,
+  });
+
+  const response = await fetch(readUrl);
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Failed to read uploaded video from Firebase Storage (${response.status}): ${detail}`);
+  }
+
+  const contentLength = Number(response.headers.get("content-length") || "0");
+  if (contentLength > MAX_INLINE_VIDEO_BYTES) {
+    throw new Error(`Uploaded video is too large for inline Gemini analysis on Vercel (${contentLength} bytes). The current inline limit is ${MAX_INLINE_VIDEO_BYTES} bytes.`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  if (arrayBuffer.byteLength > MAX_INLINE_VIDEO_BYTES) {
+    throw new Error(`Uploaded video is too large for inline Gemini analysis on Vercel (${arrayBuffer.byteLength} bytes). The current inline limit is ${MAX_INLINE_VIDEO_BYTES} bytes.`);
+  }
+
+  return {
+    inline_data: {
+      mime_type: mimeType,
+      data: Buffer.from(arrayBuffer).toString("base64"),
+    },
+  };
+}
+
 function buildPrompt(mode: AnalysisMode, inputs: AnalyzeInputs) {
-  const schema = `請回傳這個 JSON 結構：
+  const schema = `Return this JSON shape:
 {
-  "mode": "A 或 B",
-  "impression": "整體印象",
-  "stroke": "判斷泳姿",
-  "findings": [{"metaphor": "容易記住的比喻", "analysis": "問題與原因"}],
-  "suggestions": [{"mnemonic": "口訣", "drill": {"name": "訓練名稱", "purpose": "訓練目的"}}],
-  "metrics": {"swolf": 0, "dps": 0, "css": "CSS 結果", "finaPoints": 0, "analysis": "數據解讀"},
-  "trainingPlan": {"warmup": "熱身", "drills": "技術組", "mainSet": "主課表", "coolDown": "緩和"},
-  "growthAdvice": "下一步建議",
+  "mode": "A or B",
+  "impression": "overall impression in Traditional Chinese",
+  "stroke": "detected stroke or unknown",
+  "findings": [{"metaphor": "memorable cue", "analysis": "issue and cause"}],
+  "suggestions": [{"mnemonic": "short cue", "drill": {"name": "drill name", "purpose": "purpose"}}],
+  "metrics": {"swolf": 0, "dps": 0, "css": "CSS result", "finaPoints": 0, "analysis": "metric interpretation"},
+  "trainingPlan": {"warmup": "warmup", "drills": "drills", "mainSet": "main set", "coolDown": "cool down"},
+  "growthAdvice": "next step",
   "missingData": []
 }`;
 
   if (mode === "A") {
     return `${schema}
 
-分析模式 A：影片或文字動作分析
-事件或距離：${inputs.event || "未提供"}
-使用者補充：${inputs.textInput || "未提供"}
-影片狀態：${buildVideoState(inputs)}
+Mode A: swimming video or technique analysis.
+Event or distance: ${inputs.event || "not provided"}
+User notes: ${inputs.textInput || "not provided"}
+Video state: ${buildVideoState(inputs)}
 
-重要限制：如果只有 Firebase Storage 路徑，而沒有可直接讀取的影片內容，請明確寫入 missingData，不要假裝已完成逐格影片判讀。仍可根據使用者文字與已提供資料給出保守建議。`;
+If video bytes are attached, inspect the video directly and provide practical coaching feedback in Traditional Chinese. Focus on body line, kick, catch, pull path, breathing timing, recovery, rhythm, and one or two priority drills.`;
   }
 
   return `${schema}
 
-分析模式 B：數據分析
+Mode B: race or training data analysis.
 ${formatRaceEntries(inputs.raceEntries)}`;
 }
 
 function formatRaceEntries(entries: AnalyzeInputs["raceEntries"]) {
   if (!entries || entries.length === 0) {
-    return "未提供成績資料。";
+    return "No race entries provided.";
   }
 
   return entries.map((entry, index) => (
-    `資料 ${index + 1}：項目 ${entry.event}，時間 ${entry.time}，划手數 ${entry.strokeCount || "未提供"}，泳池長度 ${entry.poolLength}，分段 ${entry.splits || "未提供"}`
+    `Entry ${index + 1}: event ${entry.event}, time ${entry.time}, stroke count ${entry.strokeCount || "not provided"}, pool length ${entry.poolLength}, splits ${entry.splits || "not provided"}`
   )).join("\n");
 }
 
 function buildVideoState(inputs: AnalyzeInputs) {
   if (inputs.videoStoragePath) {
-    return `已上傳到 Firebase Storage：gs://${inputs.videoStorageBucket || "bucket"}/${inputs.videoStoragePath}`;
+    return `Uploaded to Firebase Storage: gs://${inputs.videoStorageBucket || "bucket"}/${inputs.videoStoragePath}`;
   }
 
   if (inputs.videoFileUri) {
-    return `已提供影片 URI：${inputs.videoFileUri}`;
+    return `Video URI: ${inputs.videoFileUri}`;
   }
 
   if (inputs.videoBase64) {
-    return "已提供 base64 影片資料。";
+    return "Base64 video data was provided.";
   }
 
-  return "未提供影片。";
+  return "No video provided.";
+}
+
+function createV4SignedUrl(input: {
+  method: "GET";
+  bucket: string;
+  objectName: string;
+  serviceAccount: ServiceAccount;
+}) {
+  const now = new Date();
+  const date = now.toISOString().slice(0, 10).replace(/-/g, "");
+  const timestamp = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const credentialScope = `${date}/auto/storage/goog4_request`;
+  const host = "storage.googleapis.com";
+  const canonicalUri = `/${encodeUriPath(input.bucket)}/${encodeUriPath(input.objectName)}`;
+  const signedHeaders = "host";
+
+  const query = new URLSearchParams({
+    "X-Goog-Algorithm": "GOOG4-RSA-SHA256",
+    "X-Goog-Credential": `${input.serviceAccount.clientEmail}/${credentialScope}`,
+    "X-Goog-Date": timestamp,
+    "X-Goog-Expires": String(SIGNED_URL_TTL_SECONDS),
+    "X-Goog-SignedHeaders": signedHeaders,
+  });
+  query.sort();
+
+  const canonicalHeaders = `host:${host}\n`;
+  const canonicalRequest = [
+    input.method,
+    canonicalUri,
+    query.toString(),
+    canonicalHeaders,
+    signedHeaders,
+    "UNSIGNED-PAYLOAD",
+  ].join("\n");
+
+  const stringToSign = [
+    "GOOG4-RSA-SHA256",
+    timestamp,
+    credentialScope,
+    createHash("sha256").update(canonicalRequest).digest("hex"),
+  ].join("\n");
+
+  const signature = createSign("RSA-SHA256")
+    .update(stringToSign)
+    .sign(input.serviceAccount.privateKey, "hex");
+
+  return `https://${host}${canonicalUri}?${query.toString()}&X-Goog-Signature=${signature}`;
+}
+
+function getServiceAccount(): ServiceAccount {
+  const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (serviceAccount) {
+    const parsed = JSON.parse(serviceAccount) as {
+      project_id?: string;
+      client_email?: string;
+      private_key?: string;
+    };
+
+    if (!parsed.project_id || !parsed.client_email || !parsed.private_key) {
+      throw new Error("FIREBASE_SERVICE_ACCOUNT is missing project_id, client_email or private_key.");
+    }
+
+    return {
+      projectId: parsed.project_id,
+      clientEmail: parsed.client_email,
+      privateKey: parsed.private_key.replace(/\\n/g, "\n"),
+    };
+  }
+
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+
+  const missing = [
+    !projectId ? "FIREBASE_PROJECT_ID" : "",
+    !clientEmail ? "FIREBASE_CLIENT_EMAIL" : "",
+    !privateKey ? "FIREBASE_PRIVATE_KEY" : "",
+  ].filter(Boolean);
+
+  if (missing.length > 0) {
+    throw new Error(`Firebase service account environment variables are not configured. Missing: ${missing.join(", ")}. You can alternatively set FIREBASE_SERVICE_ACCOUNT.`);
+  }
+
+  return {
+    projectId,
+    clientEmail,
+    privateKey,
+  };
+}
+
+function encodeUriPath(value: string) {
+  return value
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
 }
 
 function stripCodeFence(value: string) {
