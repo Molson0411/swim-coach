@@ -1,18 +1,24 @@
 import type { VercelRequest } from "@vercel/node";
-import { cert, getApps, initializeApp } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
-import {
-  FieldValue,
-  Firestore,
-  getFirestore,
-} from "firebase-admin/firestore";
+import type { App } from "firebase-admin/app";
 
 type AuthenticatedUser = {
   uid: string;
   email?: string;
 };
 
-function getFirebaseAdminApp() {
+let adminAppPromise: Promise<App> | null = null;
+
+async function getFirebaseAdminApp() {
+  if (adminAppPromise) {
+    return adminAppPromise;
+  }
+
+  adminAppPromise = createFirebaseAdminApp();
+  return adminAppPromise;
+}
+
+async function createFirebaseAdminApp() {
+  const { cert, getApps, initializeApp } = await import("firebase-admin/app");
   const existingApp = getApps()[0];
   if (existingApp) {
     return existingApp;
@@ -64,16 +70,15 @@ function getFirebaseAdminApp() {
   });
 }
 
-export function getAdminDb(): Firestore {
-  return getFirestore(getFirebaseAdminApp());
+export async function getAdminDb() {
+  const { getFirestore } = await import("firebase-admin/firestore");
+  return getFirestore(await getFirebaseAdminApp());
 }
 
 export async function getAdminStorageBucket() {
   const { getStorage } = await import("firebase-admin/storage");
-  return getStorage(getFirebaseAdminApp()).bucket();
+  return getStorage(await getFirebaseAdminApp()).bucket();
 }
-
-export { FieldValue };
 
 export async function verifyFirebaseToken(req: VercelRequest): Promise<AuthenticatedUser> {
   const authorization = req.headers.authorization;
@@ -86,7 +91,8 @@ export async function verifyFirebaseToken(req: VercelRequest): Promise<Authentic
     throw new Error("Missing Firebase ID token.");
   }
 
-  const decoded = await getAuth(getFirebaseAdminApp()).verifyIdToken(token);
+  const { getAuth } = await import("firebase-admin/auth");
+  const decoded = await getAuth(await getFirebaseAdminApp()).verifyIdToken(token);
   return {
     uid: decoded.uid,
     email: decoded.email,
@@ -94,7 +100,7 @@ export async function verifyFirebaseToken(req: VercelRequest): Promise<Authentic
 }
 
 export async function assertUserHasCredits(uid: string) {
-  const userRef = getAdminDb().collection("users").doc(uid);
+  const userRef = (await getAdminDb()).collection("users").doc(uid);
   const snapshot = await userRef.get();
   const freeCredits = snapshot.data()?.freeCredits;
 
@@ -104,7 +110,8 @@ export async function assertUserHasCredits(uid: string) {
 }
 
 export async function debitUserCredit(uid: string) {
-  const db = getAdminDb();
+  const db = await getAdminDb();
+  const { FieldValue } = await import("firebase-admin/firestore");
   const userRef = db.collection("users").doc(uid);
 
   await db.runTransaction(async (transaction) => {
@@ -123,7 +130,8 @@ export async function debitUserCredit(uid: string) {
 }
 
 export async function refundUserCredit(uid: string) {
-  await getAdminDb().collection("users").doc(uid).update({
+  const { FieldValue } = await import("firebase-admin/firestore");
+  await (await getAdminDb()).collection("users").doc(uid).update({
     freeCredits: FieldValue.increment(1),
     updatedAt: FieldValue.serverTimestamp(),
   });
