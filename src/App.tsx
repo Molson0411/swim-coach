@@ -157,7 +157,6 @@ function AppContent() {
   // Mode A Inputs
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
-  const MAX_VIDEO_BYTES = 1024 * 1024 * 1024;
   const [textInput, setTextInput] = useState('');
   const [eventA, setEventA] = useState('');
 
@@ -265,11 +264,6 @@ function AppContent() {
     if (file) {
       if (!file.type.startsWith('video/')) {
         toast.error('請上傳影片檔。');
-        e.target.value = '';
-        return;
-      }
-      if (file.size > MAX_VIDEO_BYTES) {
-        toast.error('影片大小不可超過 1GB。');
         e.target.value = '';
         return;
       }

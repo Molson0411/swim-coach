@@ -3,7 +3,6 @@ import { auth, db } from "../firebase";
 import { AnalysisMode, AnalysisReport } from "../types";
 
 type AnalyzeInputs = {
-  videoBase64?: string;
   videoFileUri?: string;
   videoFileName?: string;
   videoMimeType?: string;
@@ -21,7 +20,6 @@ type AnalyzeInputs = {
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
-const MAX_VIDEO_BYTES = 1024 * 1024 * 1024;
 
 type StorageUploadedFile = {
   storagePath: string;
@@ -61,10 +59,6 @@ export async function analyzeSwim(
 }
 
 export async function uploadVideoForAnalysis(file: File): Promise<StorageUploadedFile> {
-  if (file.size > MAX_VIDEO_BYTES) {
-    throw new Error("影片大小不可超過 1GB。");
-  }
-
   const { token } = await requireUserWithCredits();
   const mimeType = file.type || "video/mp4";
   const sessionResponse = await fetch(`${API_BASE_URL}/api/files/start-upload`, {

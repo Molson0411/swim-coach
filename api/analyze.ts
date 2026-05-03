@@ -1,5 +1,14 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { createHash, createSign } from "node:crypto";
+import {
+  GoogleGenAI,
+  createPartFromUri,
+  createUserContent,
+  type File as GeminiFile,
+} from "@google/genai";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { basename, extname, join } from "node:path";
+import { tmpdir } from "node:os";
+import { getAdminStorageBucket } from "./firebase-admin";
 
 type AnalysisMode = "A" | "B";
 
@@ -53,24 +62,21 @@ type AnalyzeInputs = {
   }[];
 };
 
-type GeminiPart =
-  | { text: string }
-  | { inline_data: { mime_type: string; data: string } };
-
-type ServiceAccount = {
-  projectId: string;
-  clientEmail: string;
-  privateKey: string;
+type StagedVideoFile = {
+  tempDir: string;
+  path: string;
+  displayName: string;
+  mimeType: string;
 };
 
-const MAX_INLINE_VIDEO_BYTES = 18 * 1024 * 1024;
-const SIGNED_URL_TTL_SECONDS = 10 * 60;
+const GEMINI_FILE_ACTIVE_TIMEOUT_MS = 120_000;
+const GEMINI_FILE_POLL_INTERVAL_MS = 2_000;
 
 const SYSTEM_INSTRUCTION = [
   "You are a professional swimming coach and race data analyst.",
   "Always answer in Traditional Chinese.",
   "Return JSON only. Do not use Markdown or code fences.",
-  "For mode A, analyze the supplied swimming video if video bytes are provided.",
+  "For mode A, analyze the supplied swimming video if a Gemini File URI is provided.",
   "For mode B, analyze race or training metrics.",
   "If the available data is insufficient, list the missing fields in missingData and avoid pretending you saw details that are not visible.",
 ].join("\n");
@@ -116,115 +122,140 @@ async function analyzeWithGemini(
     throw new Error("GEMINI_API_KEY is not configured on the server.");
   }
 
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-  const parts = await buildGeminiParts(mode, inputs);
+  const ai = new GoogleGenAI({ apiKey });
+  const model = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+  let uploadedVideo: GeminiFile | null = null;
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: SYSTEM_INSTRUCTION }],
-        },
-        contents: [
-          {
-            role: "user",
-            parts,
-          },
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-        },
-      }),
+  try {
+    if (mode === "A") {
+      uploadedVideo = await uploadVideoToGeminiFile(ai, inputs);
     }
-  );
 
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Gemini API request failed (${response.status}): ${detail}`);
-  }
+    const contents = uploadedVideo?.uri
+      ? createUserContent([
+        createPartFromUri(uploadedVideo.uri, uploadedVideo.mimeType || inputs.videoMimeType || "video/mp4"),
+        { text: buildPrompt(mode, inputs, uploadedVideo) },
+      ])
+      : createUserContent([{ text: buildPrompt(mode, inputs, uploadedVideo) }]);
 
-  const data = await response.json() as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
-  };
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!text) {
-    throw new Error("Gemini API returned an empty response.");
-  }
-
-  return JSON.parse(stripCodeFence(text)) as AnalysisReport;
-}
-
-async function buildGeminiParts(mode: AnalysisMode, inputs: AnalyzeInputs): Promise<GeminiPart[]> {
-  const parts: GeminiPart[] = [{ text: buildPrompt(mode, inputs) }];
-
-  if (mode === "A") {
-    const videoPart = await getVideoPart(inputs);
-    if (videoPart) {
-      parts.push(videoPart);
-    }
-  }
-
-  return parts;
-}
-
-async function getVideoPart(inputs: AnalyzeInputs): Promise<GeminiPart | null> {
-  const mimeType = inputs.videoMimeType || "video/mp4";
-
-  if (inputs.videoBase64) {
-    return {
-      inline_data: {
-        mime_type: mimeType,
-        data: inputs.videoBase64,
+    const response = await ai.models.generateContent({
+      model,
+      contents,
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION,
+        responseMimeType: "application/json",
       },
-    };
-  }
+    });
 
-  if (!inputs.videoStoragePath) {
+    const text = response.text;
+    if (!text) {
+      throw new Error("Gemini API returned an empty response.");
+    }
+
+    return JSON.parse(stripCodeFence(text)) as AnalysisReport;
+  } finally {
+    if (uploadedVideo?.name) {
+      await ai.files.delete({ name: uploadedVideo.name }).catch((error) => {
+        console.error("Failed to delete Gemini temporary file:", error);
+      });
+    }
+  }
+}
+
+async function uploadVideoToGeminiFile(
+  ai: GoogleGenAI,
+  inputs: AnalyzeInputs
+): Promise<GeminiFile | null> {
+  const stagedVideo = await stageVideoFile(inputs);
+  if (!stagedVideo) {
     return null;
   }
 
-  const bucket = inputs.videoStorageBucket || process.env.FIREBASE_STORAGE_BUCKET;
-  if (!bucket) {
-    throw new Error("videoStorageBucket or FIREBASE_STORAGE_BUCKET is required to read uploaded video.");
+  try {
+    const uploadedFile = await ai.files.upload({
+      file: stagedVideo.path,
+      config: {
+        mimeType: stagedVideo.mimeType,
+        displayName: stagedVideo.displayName,
+      },
+    });
+
+    if (!uploadedFile.name || !uploadedFile.uri) {
+      throw new Error("Gemini File API did not return a usable file name or URI.");
+    }
+
+    return waitForGeminiFileActive(ai, uploadedFile);
+  } finally {
+    await rm(stagedVideo.tempDir, { recursive: true, force: true }).catch((error) => {
+      console.error("Failed to remove local temporary video file:", error);
+    });
   }
-
-  const serviceAccount = getServiceAccount();
-  const readUrl = createV4SignedUrl({
-    method: "GET",
-    bucket,
-    objectName: inputs.videoStoragePath,
-    serviceAccount,
-  });
-
-  const response = await fetch(readUrl);
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Failed to read uploaded video from Firebase Storage (${response.status}): ${detail}`);
-  }
-
-  const contentLength = Number(response.headers.get("content-length") || "0");
-  if (contentLength > MAX_INLINE_VIDEO_BYTES) {
-    throw new Error(`Uploaded video is too large for inline Gemini analysis on Vercel (${contentLength} bytes). The current inline limit is ${MAX_INLINE_VIDEO_BYTES} bytes.`);
-  }
-
-  const arrayBuffer = await response.arrayBuffer();
-  if (arrayBuffer.byteLength > MAX_INLINE_VIDEO_BYTES) {
-    throw new Error(`Uploaded video is too large for inline Gemini analysis on Vercel (${arrayBuffer.byteLength} bytes). The current inline limit is ${MAX_INLINE_VIDEO_BYTES} bytes.`);
-  }
-
-  return {
-    inline_data: {
-      mime_type: mimeType,
-      data: Buffer.from(arrayBuffer).toString("base64"),
-    },
-  };
 }
 
-function buildPrompt(mode: AnalysisMode, inputs: AnalyzeInputs) {
+async function stageVideoFile(inputs: AnalyzeInputs): Promise<StagedVideoFile | null> {
+  const mimeType = inputs.videoMimeType || "video/mp4";
+  const tempDir = await mkdtemp(join(tmpdir(), "swim-coach-video-"));
+  const extension = getVideoExtension(inputs.videoStoragePath || inputs.videoFileName, mimeType);
+  const displayName = getDisplayName(inputs.videoStoragePath || inputs.videoFileName);
+  const tempPath = join(tempDir, `upload${extension}`);
+
+  try {
+    if (inputs.videoStoragePath) {
+      const bucket = await getAdminStorageBucket();
+      await bucket.file(inputs.videoStoragePath).download({ destination: tempPath });
+      return {
+        tempDir,
+        path: tempPath,
+        displayName,
+        mimeType,
+      };
+    }
+
+    if (inputs.videoBase64) {
+      await writeFile(tempPath, Buffer.from(stripBase64DataUrl(inputs.videoBase64), "base64"));
+      return {
+        tempDir,
+        path: tempPath,
+        displayName,
+        mimeType,
+      };
+    }
+
+    await rm(tempDir, { recursive: true, force: true });
+    return null;
+  } catch (error) {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function waitForGeminiFileActive(ai: GoogleGenAI, file: GeminiFile): Promise<GeminiFile> {
+  if (!file.name) {
+    throw new Error("Gemini File API did not return a file name.");
+  }
+
+  const deadline = Date.now() + GEMINI_FILE_ACTIVE_TIMEOUT_MS;
+  let current = file;
+
+  while (Date.now() < deadline) {
+    current = await ai.files.get({ name: file.name });
+
+    if (!current.state || current.state === "ACTIVE") {
+      return current;
+    }
+
+    if (current.state === "FAILED") {
+      const detail = current.error?.message ? `: ${current.error.message}` : "";
+      throw new Error(`Gemini failed to process the uploaded video${detail}`);
+    }
+
+    await sleep(GEMINI_FILE_POLL_INTERVAL_MS);
+  }
+
+  throw new Error("Gemini is still processing the uploaded video. Please try again in a minute.");
+}
+
+function buildPrompt(mode: AnalysisMode, inputs: AnalyzeInputs, uploadedVideo: GeminiFile | null) {
   const schema = `Return this JSON shape:
 {
   "mode": "A or B",
@@ -244,9 +275,9 @@ function buildPrompt(mode: AnalysisMode, inputs: AnalyzeInputs) {
 Mode A: swimming video or technique analysis.
 Event or distance: ${inputs.event || "not provided"}
 User notes: ${inputs.textInput || "not provided"}
-Video state: ${buildVideoState(inputs)}
+Video state: ${buildVideoState(inputs, uploadedVideo)}
 
-If video bytes are attached, inspect the video directly and provide practical coaching feedback in Traditional Chinese. Focus on body line, kick, catch, pull path, breathing timing, recovery, rhythm, and one or two priority drills.`;
+If a Gemini File URI is attached, inspect the video directly and provide practical coaching feedback in Traditional Chinese. Focus on body line, kick, catch, pull path, breathing timing, recovery, rhythm, and one or two priority drills.`;
   }
 
   return `${schema}
@@ -265,115 +296,55 @@ function formatRaceEntries(entries: AnalyzeInputs["raceEntries"]) {
   )).join("\n");
 }
 
-function buildVideoState(inputs: AnalyzeInputs) {
+function buildVideoState(inputs: AnalyzeInputs, uploadedVideo: GeminiFile | null) {
+  if (uploadedVideo?.uri) {
+    return `Uploaded to Gemini Files API: ${uploadedVideo.uri}`;
+  }
+
   if (inputs.videoStoragePath) {
-    return `Uploaded to Firebase Storage: gs://${inputs.videoStorageBucket || "bucket"}/${inputs.videoStoragePath}`;
+    return `Firebase Storage object received but no Gemini file was attached: gs://${inputs.videoStorageBucket || "configured bucket"}/${inputs.videoStoragePath}`;
+  }
+
+  if (inputs.videoBase64) {
+    return "Base64 video data was provided and staged through Gemini Files API.";
   }
 
   if (inputs.videoFileUri) {
     return `Video URI: ${inputs.videoFileUri}`;
   }
 
-  if (inputs.videoBase64) {
-    return "Base64 video data was provided.";
-  }
-
   return "No video provided.";
 }
 
-function createV4SignedUrl(input: {
-  method: "GET";
-  bucket: string;
-  objectName: string;
-  serviceAccount: ServiceAccount;
-}) {
-  const now = new Date();
-  const date = now.toISOString().slice(0, 10).replace(/-/g, "");
-  const timestamp = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
-  const credentialScope = `${date}/auto/storage/goog4_request`;
-  const host = "storage.googleapis.com";
-  const canonicalUri = `/${encodeUriPath(input.bucket)}/${encodeUriPath(input.objectName)}`;
-  const signedHeaders = "host";
-
-  const query = new URLSearchParams({
-    "X-Goog-Algorithm": "GOOG4-RSA-SHA256",
-    "X-Goog-Credential": `${input.serviceAccount.clientEmail}/${credentialScope}`,
-    "X-Goog-Date": timestamp,
-    "X-Goog-Expires": String(SIGNED_URL_TTL_SECONDS),
-    "X-Goog-SignedHeaders": signedHeaders,
-  });
-  query.sort();
-
-  const canonicalHeaders = `host:${host}\n`;
-  const canonicalRequest = [
-    input.method,
-    canonicalUri,
-    query.toString(),
-    canonicalHeaders,
-    signedHeaders,
-    "UNSIGNED-PAYLOAD",
-  ].join("\n");
-
-  const stringToSign = [
-    "GOOG4-RSA-SHA256",
-    timestamp,
-    credentialScope,
-    createHash("sha256").update(canonicalRequest).digest("hex"),
-  ].join("\n");
-
-  const signature = createSign("RSA-SHA256")
-    .update(stringToSign)
-    .sign(input.serviceAccount.privateKey, "hex");
-
-  return `https://${host}${canonicalUri}?${query.toString()}&X-Goog-Signature=${signature}`;
+function getDisplayName(value?: string) {
+  return value ? basename(value).slice(0, 512) : "swim-analysis-video";
 }
 
-function getServiceAccount(): ServiceAccount {
-  const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (serviceAccount) {
-    const parsed = JSON.parse(serviceAccount) as {
-      project_id?: string;
-      client_email?: string;
-      private_key?: string;
-    };
-
-    if (!parsed.project_id || !parsed.client_email || !parsed.private_key) {
-      throw new Error("FIREBASE_SERVICE_ACCOUNT is missing project_id, client_email or private_key.");
-    }
-
-    return {
-      projectId: parsed.project_id,
-      clientEmail: parsed.client_email,
-      privateKey: parsed.private_key.replace(/\\n/g, "\n"),
-    };
+function getVideoExtension(value: string | undefined, mimeType: string) {
+  const existingExtension = value ? extname(value) : "";
+  if (existingExtension) {
+    return existingExtension;
   }
 
-  const projectId = process.env.FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
-
-  const missing = [
-    !projectId ? "FIREBASE_PROJECT_ID" : "",
-    !clientEmail ? "FIREBASE_CLIENT_EMAIL" : "",
-    !privateKey ? "FIREBASE_PRIVATE_KEY" : "",
-  ].filter(Boolean);
-
-  if (missing.length > 0) {
-    throw new Error(`Firebase service account environment variables are not configured. Missing: ${missing.join(", ")}. You can alternatively set FIREBASE_SERVICE_ACCOUNT.`);
+  if (mimeType === "video/quicktime") {
+    return ".mov";
   }
 
-  return {
-    projectId,
-    clientEmail,
-    privateKey,
-  };
+  if (mimeType === "video/webm") {
+    return ".webm";
+  }
+
+  if (mimeType === "video/x-matroska") {
+    return ".mkv";
+  }
+
+  return ".mp4";
 }
 
-function encodeUriPath(value: string) {
-  return value
-    .split("/")
-    .map((part) => encodeURIComponent(part))
-    .join("/");
+function stripBase64DataUrl(value: string) {
+  const marker = ";base64,";
+  const markerIndex = value.indexOf(marker);
+  return markerIndex >= 0 ? value.slice(markerIndex + marker.length) : value;
 }
 
 function stripCodeFence(value: string) {
@@ -382,6 +353,10 @@ function stripCodeFence(value: string) {
     .replace(/^```\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
+}
+
+function sleep(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function setCorsHeaders(req: VercelRequest, res: VercelResponse) {

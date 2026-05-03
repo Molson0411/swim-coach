@@ -479,3 +479,64 @@ npm run setup-cors
 ```
 
 If local `.env` does not contain the Firebase Admin credentials, copy the same values from Vercel Project Settings > Environment Variables into a local `.env` file first. Do not commit `.env`.
+
+## 2026-05-03 Gemini Files API Upload Architecture
+
+影片上傳與 AI 分析流程已從 Vercel inline payload 改為 Gemini Files API，避開 Vercel request body 約 18MB 的限制。
+
+### Current Data Flow
+
+1. 前端仍透過 `/api/files/start-upload` 取得 Firebase Storage V4 Signed URL。
+2. 前端用 `PUT` 將大型 `video/*` 檔案直接上傳到 Firebase Storage，不經過 Vercel request body。
+3. 前端把 `storagePath`、`bucket`、`mimeType` 傳給 `/api/analyze`。
+4. `/api/analyze` 使用 Firebase Admin 從 Firebase Storage 下載影片到 Vercel `/tmp`。
+5. 後端使用官方 `@google/genai` 的 `ai.files.upload()` 將影片上傳到 Gemini Files API。
+6. 後端等待 Gemini File 狀態變成 `ACTIVE`，取得 `file.uri`。
+7. 後端用 `createPartFromUri(file.uri, mimeType)` 呼叫 Gemini 模型，要求回傳 JSON 結構化游泳分析。
+8. 分析完成或失敗後，`finally` 會呼叫 `ai.files.delete({ name })` 刪除 Gemini 暫存影片；本機 `/tmp` 檔也會清掉。
+
+### Official Packages
+
+本專案目前已安裝需要的官方套件：
+
+```bash
+npm install @google/genai firebase-admin
+```
+
+- `@google/genai`: Google 官方 Gemini SDK；Files API 使用 `GoogleGenAI`, `ai.files.upload`, `ai.files.get`, `ai.files.delete`, `createPartFromUri`。
+- `firebase-admin`: 後端讀取 Firebase Storage 物件。
+- 不需要安裝 `@google/generative-ai/server`；目前官方文件使用的是 `@google/genai`。
+
+### Runtime Environment
+
+Vercel 需設定：
+
+```text
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-1.5-flash
+FIREBASE_SERVICE_ACCOUNT={"type":"service_account",...}
+FIREBASE_STORAGE_BUCKET=swimcoach-e7ddf.firebasestorage.app
+```
+
+`GEMINI_MODEL` 可用環境變數覆蓋；目前 `/api/analyze.ts` 預設為 `gemini-1.5-flash`，符合這次 File API 升級需求。
+
+### Replacement File
+
+完整可替換邏輯已落在：
+
+```text
+api/analyze.ts
+```
+
+驗證結果：
+
+```bash
+npm.cmd run lint
+```
+
+已通過 TypeScript 檢查。
+
+官方參考：
+
+- https://ai.google.dev/gemini-api/docs/files
+- https://ai.google.dev/api/files
