@@ -105,7 +105,7 @@ export async function assertUserHasCredits(uid: string) {
   const freeCredits = snapshot.data()?.freeCredits;
 
   if (typeof freeCredits !== "number" || freeCredits <= 0) {
-    throw new Error("免費額度已用完。");
+    throw new Error("?祥憿漲撌脩摰?");
   }
 }
 
@@ -119,7 +119,7 @@ export async function debitUserCredit(uid: string) {
     const freeCredits = snapshot.data()?.freeCredits;
 
     if (typeof freeCredits !== "number" || freeCredits <= 0) {
-      throw new Error("免費額度已用完。");
+      throw new Error("?祥憿漲撌脩摰?");
     }
 
     transaction.update(userRef, {

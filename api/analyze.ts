@@ -8,7 +8,7 @@ import {
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { getAdminStorageBucket } from "./firebase-admin";
+import { getAdminStorageBucket } from "../lib/firebase-admin.js";
 
 type AnalysisMode = "A" | "B";
 
