@@ -123,7 +123,7 @@ async function analyzeWithGemini(
   }
 
   const ai = new GoogleGenAI({ apiKey });
-  const model = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+  const model = getGeminiModel();
   let uploadedVideo: GeminiFile | null = null;
 
   try {
@@ -352,6 +352,17 @@ function stripCodeFence(value: string) {
     .replace(/^```json\s*/i, "")
     .replace(/^```\s*/i, "")
     .replace(/\s*```$/i, "")
+    .trim();
+}
+
+function getGeminiModel() {
+  return sanitizeEnvValue(process.env.GEMINI_MODEL) || "gemini-2.0-flash";
+}
+
+function sanitizeEnvValue(value: string | undefined) {
+  return value
+    ?.trim()
+    .replace(/^['"]+|['"]+$/g, "")
     .trim();
 }
 

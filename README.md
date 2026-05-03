@@ -513,12 +513,12 @@ Vercel 需設定：
 
 ```text
 GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-1.5-flash
+GEMINI_MODEL=gemini-2.0-flash
 FIREBASE_SERVICE_ACCOUNT={"type":"service_account",...}
 FIREBASE_STORAGE_BUCKET=swimcoach-e7ddf.firebasestorage.app
 ```
 
-`GEMINI_MODEL` 可用環境變數覆蓋；目前 `/api/analyze.ts` 預設為 `gemini-1.5-flash`，符合這次 File API 升級需求。
+`GEMINI_MODEL` 可用環境變數覆蓋；目前 `/api/analyze.ts` 預設為 `gemini-2.0-flash`，並會清除環境變數前後空白與外層引號，避免 Vercel env 格式造成模型 404。
 
 ### Replacement File
 
