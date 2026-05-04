@@ -513,12 +513,12 @@ Vercel 需設定：
 
 ```text
 GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-2.0-flash
+GEMINI_MODEL=gemini-2.5-flash
 FIREBASE_SERVICE_ACCOUNT={"type":"service_account",...}
 FIREBASE_STORAGE_BUCKET=swimcoach-e7ddf.firebasestorage.app
 ```
 
-`GEMINI_MODEL` 可用環境變數覆蓋；目前 `/api/analyze.ts` 預設為 `gemini-2.0-flash`，並會清除環境變數前後空白與外層引號，避免 Vercel env 格式造成模型 404。
+`GEMINI_MODEL` 可用環境變數覆蓋；目前 `/api/analyze.ts` 預設為穩定且支援影片輸入的 `gemini-2.5-flash`，並會清除環境變數前後空白與外層引號。
 
 ### Replacement File
 
@@ -540,3 +540,12 @@ npm.cmd run lint
 
 - https://ai.google.dev/gemini-api/docs/files
 - https://ai.google.dev/api/files
+
+## 2026-05-04 Gemini 2.0 Model 404 Fix
+
+- Google paid project migration exposed a Gemini API 404: `models/gemini-2.0-flash` is no longer available to new users.
+- `api/analyze.ts` now defaults to the stable video-capable `gemini-2.5-flash`.
+- `GEMINI_MODEL=gemini-2.5-pro`, `pro`, `highest`, or `high` can be used when higher-accuracy analysis is required.
+- Deprecated or unsupported `GEMINI_MODEL` values now log a warning and fall back to `gemini-2.5-flash`, so a stale Vercel environment variable will not keep calling Gemini 2.0.
+- `.env.example` documents the optional `GEMINI_MODEL=gemini-2.5-flash` setting.
+- Verification: `npm.cmd run lint` was blocked by the local Node v24 / OneDrive `ERR_INVALID_PACKAGE_CONFIG` issue; direct typecheck with the bundled Node 22 command passed: `& '.tools\node-v22.15.0-win-x64\node.exe' node_modules\typescript\bin\tsc --noEmit`.

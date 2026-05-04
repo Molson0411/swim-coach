@@ -71,6 +71,8 @@ type StagedVideoFile = {
 
 const GEMINI_FILE_ACTIVE_TIMEOUT_MS = 120_000;
 const GEMINI_FILE_POLL_INTERVAL_MS = 2_000;
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+const HIGH_ACCURACY_GEMINI_MODEL = "gemini-2.5-pro";
 
 const SYSTEM_INSTRUCTION = [
   "You are a professional swimming coach and race data analyst.",
@@ -356,7 +358,36 @@ function stripCodeFence(value: string) {
 }
 
 function getGeminiModel() {
-  return sanitizeEnvValue(process.env.GEMINI_MODEL) || "gemini-2.0-flash";
+  return resolveGeminiModel(process.env.GEMINI_MODEL);
+}
+
+function resolveGeminiModel(configuredModel?: string) {
+  const model = sanitizeEnvValue(configuredModel);
+
+  if (!model) {
+    return DEFAULT_GEMINI_MODEL;
+  }
+
+  const normalizedModel = model.toLowerCase();
+  if (
+    model === HIGH_ACCURACY_GEMINI_MODEL
+    || normalizedModel === "pro"
+    || normalizedModel === "highest"
+    || normalizedModel === "high"
+  ) {
+    return HIGH_ACCURACY_GEMINI_MODEL;
+  }
+
+  if (model === DEFAULT_GEMINI_MODEL) {
+    return DEFAULT_GEMINI_MODEL;
+  }
+
+  if (/^models\/gemini-2\.5-(flash|pro)$/.test(model)) {
+    return model.replace(/^models\//, "");
+  }
+
+  console.warn(`Unsupported or deprecated GEMINI_MODEL "${model}". Falling back to ${DEFAULT_GEMINI_MODEL}.`);
+  return DEFAULT_GEMINI_MODEL;
 }
 
 function sanitizeEnvValue(value: string | undefined) {
