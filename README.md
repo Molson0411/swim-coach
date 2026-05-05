@@ -564,3 +564,14 @@ npm.cmd run lint
 - Preserved the Firebase Storage -> Gemini Files API upload flow and Gemini temporary file cleanup.
 - Restored model selection fallback to `gemini-2.5-flash`, with `gemini-2.5-pro` aliases for high/pro/highest settings and warning fallback for unsupported `GEMINI_MODEL` values.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/OneDrive `spawn EPERM` issue appeared inside the sandbox.
+
+## 2026-05-05 Training Calendar and Mode B CSS Logic
+
+- Added a Training Calendar view to the history page, extending the existing analysis history list.
+- Calendar styling follows the sports-tech palette: text uses `#303036`, record markers use `#30BCED`, and today's date uses a solid `#30BCED` background with white text.
+- Added mock records for the current month so the calendar can be previewed before real Firestore history exists.
+- Dates with records now show a blue dot; clicking a marked date opens a rounded slide-over summary panel with mode, stroke, event, and core diagnosis text.
+- Slide-over entries backed by saved Firestore reports can still jump into the full report view; mock entries are preview-only.
+- Updated the Mode B prompt in `api/analyze.ts` with a CSS calculation instruction: when two or more distance/time results are available, Gemini must calculate CSS, convert it to pace per 100m, and avoid mixing CSS with SWOLF/DPS when stroke count is missing.
+- Preserved the existing API request handling, Gemini model resolution, Firebase/Gemini Files API flow, and response shape.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/OneDrive `spawn EPERM` issue appeared inside the sandbox.

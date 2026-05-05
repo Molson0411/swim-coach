@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, Component } from 'react';
+import React, { useState, useRef, useEffect, useMemo, Component } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Waves, 
@@ -23,7 +23,9 @@ import {
   LogOut,
   LogIn,
   User as UserIcon,
-  Trash2
+  Trash2,
+  CalendarDays,
+  X
 } from 'lucide-react';
 import { analyzeSwim, uploadVideoForAnalysis } from './services/gemini';
 import { AnalysisReport, AnalysisMode } from './types';
@@ -41,6 +43,109 @@ import {
 } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
+
+type TrainingCalendarRecord = {
+  id: string;
+  date: Date;
+  mode: AnalysisMode;
+  stroke?: string;
+  event?: string;
+  impression?: string;
+  isMock?: boolean;
+  sourceReport?: AnalysisReport & { id: string, createdAt: any, event?: string };
+};
+
+const trainingCalendarMockData = createTrainingCalendarMockData();
+
+function createTrainingCalendarMockData(): TrainingCalendarRecord[] {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  const days = [3, 9, 15, 22].map((day) => Math.min(day, lastDay));
+
+  return [
+    {
+      id: 'mock-technique-1',
+      date: new Date(year, month, days[0]),
+      mode: 'A',
+      stroke: 'Freestyle',
+      event: '50 Free',
+      impression: 'Catch timing is improving; keep hips higher through breathing.',
+      isMock: true,
+    },
+    {
+      id: 'mock-css-1',
+      date: new Date(year, month, days[1]),
+      mode: 'B',
+      stroke: 'Freestyle',
+      event: 'CSS Test',
+      impression: 'CSS pace is stable; stroke count data is still needed for SWOLF.',
+      isMock: true,
+    },
+    {
+      id: 'mock-technique-2',
+      date: new Date(year, month, days[2]),
+      mode: 'A',
+      stroke: 'Breaststroke',
+      event: 'Technique Review',
+      impression: 'Kick recovery is compact, but glide line can stay cleaner.',
+      isMock: true,
+    },
+    {
+      id: 'mock-race-1',
+      date: new Date(year, month, days[3]),
+      mode: 'B',
+      stroke: 'Mixed',
+      event: 'Race Data',
+      impression: 'Speed profile shows a strong opening with room for pacing control.',
+      isMock: true,
+    },
+  ];
+}
+
+function toCalendarDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getReportCreatedDate(item: AnalysisReport & { createdAt: any }) {
+  if (item.createdAt?.toDate) {
+    return item.createdAt.toDate() as Date;
+  }
+
+  if (item.createdAt instanceof Date) {
+    return item.createdAt;
+  }
+
+  return null;
+}
+
+function buildMonthCalendarDays(baseDate: Date) {
+  const year = baseDate.getFullYear();
+  const month = baseDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const startOffset = firstDay.getDay();
+  const totalDays = new Date(year, month + 1, 0).getDate();
+  const cells: { date: Date | null; key: string }[] = [];
+
+  for (let index = 0; index < startOffset; index += 1) {
+    cells.push({ date: null, key: `empty-start-${index}` });
+  }
+
+  for (let day = 1; day <= totalDays; day += 1) {
+    const date = new Date(year, month, day);
+    cells.push({ date, key: toCalendarDateKey(date) });
+  }
+
+  while (cells.length % 7 !== 0) {
+    cells.push({ date: null, key: `empty-end-${cells.length}` });
+  }
+
+  return cells;
+}
 
 // Confirm Modal Component
 function ConfirmModal({ isOpen, title, message, onConfirm, onCancel }: { 
@@ -158,6 +263,7 @@ function AppContent() {
   const [progress, setProgress] = useState(0);
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
   const [history, setHistory] = useState<(AnalysisReport & { id: string, createdAt: any, event?: string })[]>([]);
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ isOpen: boolean, id: string }>({ isOpen: false, id: '' });
   
   // Mode A Inputs
@@ -181,6 +287,41 @@ function AppContent() {
   ];
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const calendarBaseDate = useMemo(() => new Date(), []);
+  const todayKey = useMemo(() => toCalendarDateKey(new Date()), []);
+  const calendarDays = useMemo(() => buildMonthCalendarDays(calendarBaseDate), [calendarBaseDate]);
+  const monthLabel = useMemo(
+    () => calendarBaseDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+    [calendarBaseDate]
+  );
+  const calendarRecords = useMemo<TrainingCalendarRecord[]>(() => {
+    const savedRecords = history
+      .map((item) => {
+        const date = getReportCreatedDate(item);
+        if (!date) return null;
+
+        return {
+          id: item.id,
+          date,
+          mode: item.mode,
+          stroke: item.stroke,
+          event: item.event,
+          impression: item.impression || item.metrics?.analysis || item.growthAdvice,
+          sourceReport: item,
+        } satisfies TrainingCalendarRecord;
+      })
+      .filter(Boolean) as TrainingCalendarRecord[];
+
+    return [...savedRecords, ...trainingCalendarMockData];
+  }, [history]);
+  const recordsByDate = useMemo(() => (
+    calendarRecords.reduce<Record<string, TrainingCalendarRecord[]>>((acc, record) => {
+      const key = toCalendarDateKey(record.date);
+      acc[key] = [...(acc[key] || []), record];
+      return acc;
+    }, {})
+  ), [calendarRecords]);
+  const selectedCalendarRecords = selectedCalendarDate ? recordsByDate[selectedCalendarDate] || [] : [];
 
   useEffect(() => {
     if (!isAnalyzing) {
@@ -518,6 +659,134 @@ function AppContent() {
                   <ArrowLeft className="w-3 h-3" /> Back to App
                 </button>
               </div>
+
+              <div className="bg-white border border-ink/10 rounded-[2rem] p-4 sm:p-8 shadow-xl shadow-ink/5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="h-11 w-11 rounded-full bg-accent/10 text-accent flex items-center justify-center">
+                      <CalendarDays className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.24em] font-bold text-accent">Training Calendar</p>
+                      <h3 className="text-xl sm:text-2xl font-bold text-ink">{monthLabel}</h3>
+                    </div>
+                  </div>
+                  <p className="text-xs text-ink/50 max-w-sm leading-relaxed">
+                    Blue dots mark days with analysis records. Mock data is included for preview.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-7 gap-2 sm:gap-3 text-center">
+                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((weekday) => (
+                    <div key={weekday} className="py-2 text-[10px] sm:text-xs font-bold uppercase tracking-widest text-ink/40">
+                      {weekday}
+                    </div>
+                  ))}
+                  {calendarDays.map((cell) => {
+                    const dateKey = cell.date ? toCalendarDateKey(cell.date) : cell.key;
+                    const recordsForDay = cell.date ? recordsByDate[dateKey] || [] : [];
+                    const hasRecords = recordsForDay.length > 0;
+                    const isToday = dateKey === todayKey;
+
+                    return (
+                      <button
+                        key={cell.key}
+                        type="button"
+                        disabled={!cell.date}
+                        onClick={() => hasRecords && setSelectedCalendarDate(dateKey)}
+                        className={cn(
+                          "min-h-14 sm:min-h-20 rounded-2xl border border-transparent p-2 flex flex-col items-center justify-center gap-1 transition-all",
+                          !cell.date && "pointer-events-none opacity-0",
+                          cell.date && "bg-paper/60 text-ink hover:border-accent/40 hover:bg-white",
+                          hasRecords && "cursor-pointer shadow-sm hover:shadow-md hover:-translate-y-0.5",
+                          isToday && "bg-accent text-white hover:bg-accent hover:text-white"
+                        )}
+                      >
+                        {cell.date && (
+                          <>
+                            <span className="text-sm sm:text-base font-bold">{cell.date.getDate()}</span>
+                            <span className={cn(
+                              "h-1.5 w-1.5 rounded-full",
+                              hasRecords ? (isToday ? "bg-white" : "bg-accent") : "bg-transparent"
+                            )} />
+                          </>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <AnimatePresence>
+                {selectedCalendarDate && (
+                  <div className="fixed inset-0 z-[90]">
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="absolute inset-0 bg-ink/30 backdrop-blur-sm"
+                      onClick={() => setSelectedCalendarDate(null)}
+                    />
+                    <motion.aside
+                      initial={{ opacity: 0, x: 40 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 40 }}
+                      className="absolute inset-x-4 bottom-4 top-auto max-h-[82vh] overflow-y-auto rounded-[2rem] bg-white p-5 shadow-2xl md:inset-y-6 md:left-auto md:right-6 md:w-[420px] md:max-h-none md:p-7"
+                    >
+                      <div className="flex items-start justify-between gap-4 mb-6">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.24em] font-bold text-accent">Daily Summary</p>
+                          <h3 className="text-2xl font-bold text-ink">
+                            {new Date(`${selectedCalendarDate}T00:00:00`).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric'
+                            })}
+                          </h3>
+                        </div>
+                        <button
+                          onClick={() => setSelectedCalendarDate(null)}
+                          className="h-10 w-10 rounded-full bg-ink/5 text-ink/60 hover:bg-accent hover:text-white transition-colors flex items-center justify-center"
+                          type="button"
+                        >
+                          <X className="h-5 w-5" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-3">
+                        {selectedCalendarRecords.map((record) => (
+                          <button
+                            key={record.id}
+                            type="button"
+                            onClick={() => {
+                              if (!record.sourceReport) return;
+                              setReport(record.sourceReport);
+                              setMode(record.sourceReport.mode);
+                              setSelectedCalendarDate(null);
+                              setActiveTab('report');
+                            }}
+                            className="w-full text-left rounded-2xl border border-ink/10 bg-paper/60 p-4 hover:border-accent/50 hover:bg-white transition-all"
+                          >
+                            <div className="flex items-center justify-between gap-3 mb-3">
+                              <span className="rounded-full bg-accent/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-accent">
+                                Mode {record.mode}
+                              </span>
+                              {record.isMock && (
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-ink/30">Mock</span>
+                              )}
+                            </div>
+                            <h4 className="text-base font-bold text-ink">{record.event || record.stroke || 'Analysis Report'}</h4>
+                            <p className="text-xs text-ink/50 mt-1">Stroke: {record.stroke || 'N/A'}</p>
+                            <p className="text-sm leading-relaxed text-ink/70 mt-3">
+                              {record.impression || 'No summary available.'}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    </motion.aside>
+                  </div>
+                )}
+              </AnimatePresence>
 
               {history.length === 0 ? (
                 <div className="bg-white border border-ink/5 p-16 rounded-[3rem] text-center space-y-4">
