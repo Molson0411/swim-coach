@@ -1,16 +1,21 @@
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=JetBrains+Mono:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Poppins", "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
-  --font-serif: "Playfair Display", serif;
+  --font-sans: "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   
-  --color-ink: #3c3c3c;
-  --color-accent: #0892b3;
-  --color-paper: #f9f9f9;
+  --color-ink: #303036;
+  --color-accent: #30BCED;
+  --color-paper: #f7f9fb;
+}
+
+html {
+  font-family: "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
 }
 
 body {
   @apply font-sans antialiased bg-paper text-ink;
+  font-family: "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
 }

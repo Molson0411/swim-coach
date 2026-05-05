@@ -77,11 +77,47 @@ const HIGH_ACCURACY_GEMINI_MODEL = "gemini-2.5-pro";
 const SYSTEM_INSTRUCTION = [
   "You are a professional swimming coach and race data analyst.",
   "Always answer in Traditional Chinese.",
-  "Return JSON only. Do not use Markdown or code fences.",
+  "Return JSON only. Do not use code fences. JSON string values may contain Markdown formatting.",
   "For mode A, analyze the supplied swimming video if a Gemini File URI is provided.",
   "For mode B, analyze race or training metrics.",
   "If the available data is insufficient, list the missing fields in missingData and avoid pretending you saw details that are not visible.",
 ].join("\n");
+
+const OLYMPIC_TECHNIQUE_PROMPT = `你是一位專精於競技游泳與運動生物力學的「奧運級技術分析教練」。
+你的任務是精準、客觀地分析學員上傳的游泳影片，並提供極具專業深度的技術診斷報告。
+
+【核心分析維度】請務必從以下視角進行檢視：
+
+身體流線型與水阻 (Body Alignment & Drag)：頭部位置、核心穩定度、髖部下沉狀況。
+
+推進力與抓水技術 (Propulsion & Catch)：入水點、高肘抓水 (High-elbow catch) 的確實度、推水軌跡。
+
+節奏與協調性 (Rhythm & Coordination)：划頻、呼吸時機、手腿發力配合（如打腿節奏）。
+
+常見盲點 (Common Flaws)：如剪刀腳、過度交叉、換氣過度轉體等。
+
+【輸出格式與語氣】
+
+語氣必須具備權威感但充滿鼓勵，使用繁體中文。
+
+善用 Markdown 格式（粗體、條列式）使排版極度清晰，方便手機閱讀。
+
+報告結構必須包含：
+
+核心診斷結論（用一句話總結最大的技術亮點或盲點）
+
+技術亮點（肯定做得好的地方）
+
+動作修正建議（具體指出問題點與生物力學原理）
+
+矯正分解動作推薦（針對上述盲點，推薦 1-2 個極具針對性的陸上或水下分解動作來改善）
+
+專注訓練焦點（下水時腦中該想著什麼口訣）
+
+【絕對約束條件】
+你是一個「技術診斷與矯正建議模組」。
+你可以且應該推薦「具體的分解動作 (Drills)」，但絕對不可在報告中提供任何形式的「完整訓練菜單」、「趟數規劃」、「出發秒數」或「心率區間排程」（例如：絕對不可寫出 10x50m 這種排程）。
+請將你的建議完全聚焦於「如何透過分解動作來修復技術」，把具體的排課工作留給專屬科學訓練系統。`;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setCorsHeaders(req, res);
@@ -261,25 +297,26 @@ function buildPrompt(mode: AnalysisMode, inputs: AnalyzeInputs, uploadedVideo: G
   const schema = `Return this JSON shape:
 {
   "mode": "A or B",
-  "impression": "overall impression in Traditional Chinese",
+  "impression": "核心診斷結論。Use concise Traditional Chinese and Markdown bold when helpful.",
   "stroke": "detected stroke or unknown",
-  "findings": [{"metaphor": "memorable cue", "analysis": "issue and cause"}],
-  "suggestions": [{"mnemonic": "short cue", "drill": {"name": "drill name", "purpose": "purpose"}}],
+  "findings": [{"metaphor": "技術亮點或常見盲點的短標題", "analysis": "動作修正建議，包含問題點與生物力學原理"}],
+  "suggestions": [{"mnemonic": "專注訓練焦點口訣", "drill": {"name": "矯正分解動作名稱", "purpose": "該分解動作如何修復技術盲點"}}],
   "metrics": {"swolf": 0, "dps": 0, "css": "CSS result", "finaPoints": 0, "analysis": "metric interpretation"},
-  "trainingPlan": {"warmup": "warmup", "drills": "drills", "mainSet": "main set", "coolDown": "cool down"},
-  "growthAdvice": "next step",
+  "growthAdvice": "鼓勵式總結，只聚焦技術修正，不提供完整訓練菜單",
   "missingData": []
 }`;
 
   if (mode === "A") {
-    return `${schema}
+    return `${OLYMPIC_TECHNIQUE_PROMPT}
 
-Mode A: swimming video or technique analysis.
+${schema}
+
+Mode A: swimming video technique diagnosis.
 Event or distance: ${inputs.event || "not provided"}
 User notes: ${inputs.textInput || "not provided"}
 Video state: ${buildVideoState(inputs, uploadedVideo)}
 
-If a Gemini File URI is attached, inspect the video directly and provide practical coaching feedback in Traditional Chinese. Focus on body line, kick, catch, pull path, breathing timing, recovery, rhythm, and one or two priority drills.`;
+If a Gemini File URI is attached, inspect the video directly. Do not include complete workouts, set prescriptions, send-off intervals, lap counts, or heart-rate zone schedules.`;
   }
 
   return `${schema}

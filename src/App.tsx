@@ -74,13 +74,13 @@ function ConfirmModal({ isOpen, title, message, onConfirm, onCancel }: {
             <div className="flex gap-3">
               <button 
                 onClick={onCancel}
-                className="flex-1 py-3 rounded-xl font-bold uppercase tracking-widest text-[10px] border border-ink/10 hover:bg-ink/5 transition-all"
+                className="flex-1 py-3 rounded-full font-bold uppercase tracking-widest text-[10px] border border-ink/10 hover:bg-accent hover:text-white hover:border-accent transition-all"
               >
                 Cancel
               </button>
               <button 
                 onClick={onConfirm}
-                className="flex-1 py-3 rounded-xl font-bold uppercase tracking-widest text-[10px] bg-red-500 text-white hover:bg-red-600 transition-all shadow-lg shadow-red-500/20"
+                className="flex-1 py-3 rounded-full font-bold uppercase tracking-widest text-[10px] bg-red-500 text-white hover:bg-red-600 transition-all shadow-lg shadow-red-500/20"
               >
                 Confirm
               </button>
@@ -120,7 +120,7 @@ class ErrorBoundary extends React.Component<any, any> {
             </div>
             <button 
               onClick={() => window.location.reload()}
-              className="w-full bg-ink text-white py-4 rounded-xl font-bold uppercase tracking-widest hover:bg-ink/90 transition-all"
+              className="w-full bg-ink text-white py-4 rounded-full font-bold uppercase tracking-widest hover:bg-accent transition-all"
             >
               Refresh Page
             </button>
@@ -143,6 +143,11 @@ export default function App() {
 }
 
 function AppContent() {
+  const loadingMessages = [
+    '正在提取關鍵影格...',
+    '正在進行生物力學比對...',
+    '正在生成技術診斷報告...'
+  ];
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
@@ -151,6 +156,7 @@ function AppContent() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [report, setReport] = useState<AnalysisReport | null>(null);
   const [progress, setProgress] = useState(0);
+  const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
   const [history, setHistory] = useState<(AnalysisReport & { id: string, createdAt: any, event?: string })[]>([]);
   const [confirmDelete, setConfirmDelete] = useState<{ isOpen: boolean, id: string }>({ isOpen: false, id: '' });
   
@@ -175,6 +181,19 @@ function AppContent() {
   ];
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isAnalyzing) {
+      setLoadingMessageIndex(0);
+      return;
+    }
+
+    const messageInterval = setInterval(() => {
+      setLoadingMessageIndex((current) => (current + 1) % loadingMessages.length);
+    }, 2200);
+
+    return () => clearInterval(messageInterval);
+  }, [isAnalyzing, loadingMessages.length]);
 
   useEffect(() => {
     let isMounted = true;
@@ -409,7 +428,7 @@ function AppContent() {
       {/* Header */}
       <header className="border-b border-ink/10 p-4 md:p-6 flex flex-col sm:flex-row justify-between items-center bg-white/80 backdrop-blur-md sticky top-0 z-50 gap-4 sm:gap-0">
         <div className="flex items-center gap-3 cursor-pointer w-full sm:w-auto" onClick={resetMode}>
-          <div className="bg-accent p-2 rounded-xl shadow-lg shadow-accent/20">
+          <div className="bg-accent p-2 rounded-2xl shadow-lg shadow-accent/20">
             <Waves className="text-white w-6 h-6" />
           </div>
           <div>
@@ -429,7 +448,7 @@ function AppContent() {
               <button 
                 onClick={() => setActiveTab('history')}
                 className={cn(
-                  "p-2 rounded-xl transition-all",
+                  "p-2 rounded-full transition-all",
                   activeTab === 'history' ? "bg-accent text-white shadow-lg shadow-accent/20" : "bg-ink/5 text-ink/60 hover:bg-ink/10 hover:text-ink"
                 )}
                 title="History"
@@ -438,7 +457,7 @@ function AppContent() {
               </button>
               <button 
                 onClick={logout}
-                className="p-2 bg-ink/5 text-ink/60 hover:bg-ink/10 hover:text-ink rounded-xl transition-all"
+                className="p-2 bg-ink/5 text-ink/60 hover:bg-accent hover:text-white rounded-full transition-all"
                 title="Logout"
               >
                 <LogOut className="w-5 h-5" />
@@ -448,18 +467,18 @@ function AppContent() {
             <button 
               onClick={handleSignIn}
               disabled={!isAuthReady || isSigningIn}
-              className="flex items-center gap-2 bg-ink text-white px-6 py-2 rounded-xl text-[11px] uppercase tracking-widest font-bold hover:bg-ink/90 transition-all shadow-lg shadow-ink/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 bg-ink text-white px-6 py-2 rounded-full text-[11px] uppercase tracking-widest font-bold hover:bg-accent transition-all shadow-lg shadow-ink/20 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <LogIn className="w-4 h-4" /> {isSigningIn ? 'Signing in...' : 'Login'}
             </button>
           )}
 
           {mode && (
-            <div className="flex gap-2 bg-ink/5 p-1 rounded-2xl">
+            <div className="flex gap-2 bg-ink/5 p-1 rounded-full">
               <button 
                 onClick={() => setActiveTab('input')}
                 className={cn(
-                  "text-xs sm:text-[11px] uppercase tracking-widest px-4 sm:px-6 py-2 transition-all rounded-xl font-bold",
+                  "text-xs sm:text-[11px] uppercase tracking-widest px-4 sm:px-6 py-2 transition-all rounded-full font-bold",
                   activeTab === 'input' ? "bg-white text-accent shadow-sm" : "text-ink/60 hover:text-ink"
                 )}
               >
@@ -469,7 +488,7 @@ function AppContent() {
                 onClick={() => report && setActiveTab('report')}
                 disabled={!report}
                 className={cn(
-                  "text-xs sm:text-[11px] uppercase tracking-widest px-4 sm:px-6 py-2 transition-all rounded-xl font-bold",
+                  "text-xs sm:text-[11px] uppercase tracking-widest px-4 sm:px-6 py-2 transition-all rounded-full font-bold",
                   activeTab === 'report' ? "bg-white text-accent shadow-sm" : "disabled:opacity-20 text-ink/60 hover:text-ink"
                 )}
               >
@@ -561,9 +580,9 @@ function AppContent() {
             >
               <button 
                 onClick={() => setMode('A')}
-                className="group bg-white border border-ink/5 p-8 text-left hover:border-accent/50 transition-all rounded-[2.5rem] shadow-xl shadow-ink/5 hover:shadow-2xl hover:shadow-accent/10 hover:-translate-y-1"
+                className="group bg-white border border-ink/10 p-8 text-left hover:border-accent/70 transition-all rounded-[2rem] shadow-xl shadow-ink/5 hover:shadow-2xl hover:shadow-accent/10 hover:-translate-y-1"
               >
-                <div className="w-12 h-12 sm:w-14 sm:h-14 bg-ink text-white rounded-2xl flex items-center justify-center mb-6 group-hover:bg-accent transition-colors">
+                <div className="w-12 h-12 sm:w-14 sm:h-14 bg-ink text-white rounded-full flex items-center justify-center mb-6 group-hover:bg-accent transition-colors">
                   <Play className="w-5 h-5 sm:w-6 sm:h-6" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold mb-2 uppercase tracking-tight font-serif italic text-ink">模式 A：動作技術診斷</h2>
@@ -575,9 +594,9 @@ function AppContent() {
 
               <button 
                 onClick={() => setMode('B')}
-                className="group bg-white border border-ink/5 p-8 text-left hover:border-accent/50 transition-all rounded-[2.5rem] shadow-xl shadow-ink/5 hover:shadow-2xl hover:shadow-accent/10 hover:-translate-y-1"
+                className="group bg-white border border-ink/10 p-8 text-left hover:border-accent/70 transition-all rounded-[2rem] shadow-xl shadow-ink/5 hover:shadow-2xl hover:shadow-accent/10 hover:-translate-y-1"
               >
-                <div className="w-12 h-12 sm:w-14 sm:h-14 bg-accent text-white rounded-2xl flex items-center justify-center mb-6 group-hover:bg-ink transition-colors">
+                <div className="w-12 h-12 sm:w-14 sm:h-14 bg-accent text-white rounded-full flex items-center justify-center mb-6 group-hover:bg-ink transition-colors">
                   <Timer className="w-5 h-5 sm:w-6 sm:h-6" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold mb-2 uppercase tracking-tight font-serif italic text-ink">模式 B：成績分析與課表</h2>
@@ -750,46 +769,49 @@ function AppContent() {
                     </div>
                   )}
 
-                  <button 
-                    onClick={handleAnalyze}
-                    disabled={isAnalyzing}
-                    className="w-full bg-ink text-white py-6 rounded-3xl font-bold uppercase tracking-[0.3em] hover:bg-ink/90 transition-all shadow-lg shadow-ink/20 disabled:opacity-50 flex flex-col items-center justify-center gap-4"
-                  >
-                    {isAnalyzing ? (
-                      <>
-                        <div className="relative w-12 h-12">
-                          <svg className="w-full h-full transform -rotate-90">
-                            <circle
-                              cx="24"
-                              cy="24"
-                              r="20"
-                              stroke="currentColor"
-                              strokeWidth="4"
-                              fill="transparent"
-                              className="text-white/10"
-                            />
-                            <circle
-                              cx="24"
-                              cy="24"
-                              r="20"
-                              stroke="currentColor"
-                              strokeWidth="4"
-                              fill="transparent"
-                              strokeDasharray={125.6}
-                              strokeDashoffset={125.6 - (progress / 100) * 125.6}
-                              className="text-accent transition-all duration-500 ease-out"
-                            />
-                          </svg>
-                          <div className="absolute inset-0 flex items-center justify-center text-[10px] font-mono">
-                            {Math.round(progress)}%
-                          </div>
+                  {isAnalyzing ? (
+                    <div className="w-full rounded-[2rem] border border-accent/30 bg-white p-6 shadow-xl shadow-accent/10">
+                      <div className="flex flex-col items-center gap-5 text-center">
+                        <div className="relative h-14 w-14">
+                          <div className="absolute inset-0 rounded-full border-4 border-accent/15" />
+                          <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-accent animate-spin" />
+                          <div className="absolute inset-2 rounded-full bg-accent/10" />
                         </div>
-                        <span className="text-[10px] tracking-widest text-white/70">AI Processing...</span>
-                      </>
-                    ) : (
-                      'Start AI Analysis'
-                    )}
-                  </button>
+                        <div className="space-y-2">
+                          <p className="text-sm font-bold tracking-[0.2em] text-ink uppercase">AI Analysis Running</p>
+                          <AnimatePresence mode="wait">
+                            <motion.p
+                              key={loadingMessageIndex}
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -8 }}
+                              className="text-sm font-bold text-accent"
+                            >
+                              {loadingMessages[loadingMessageIndex]}
+                            </motion.p>
+                          </AnimatePresence>
+                        </div>
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-ink/10">
+                          <motion.div
+                            className="h-full rounded-full bg-accent"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${Math.round(progress)}%` }}
+                            transition={{ duration: 0.4, ease: 'easeOut' }}
+                          />
+                        </div>
+                        <p className="font-mono text-[10px] font-bold tracking-widest text-ink/40">
+                          {Math.round(progress)}%
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <button 
+                      onClick={handleAnalyze}
+                      className="w-full bg-ink text-white py-6 rounded-full font-bold uppercase tracking-[0.3em] hover:bg-accent transition-all shadow-lg shadow-ink/20 flex items-center justify-center gap-4"
+                    >
+                      Start AI Analysis
+                    </button>
+                  )}
                 </div>
               </div>
 

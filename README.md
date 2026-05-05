@@ -549,3 +549,18 @@ npm.cmd run lint
 - Deprecated or unsupported `GEMINI_MODEL` values now log a warning and fall back to `gemini-2.5-flash`, so a stale Vercel environment variable will not keep calling Gemini 2.0.
 - `.env.example` documents the optional `GEMINI_MODEL=gemini-2.5-flash` setting.
 - Verification: `npm.cmd run lint` was blocked by the local Node v24 / OneDrive `ERR_INVALID_PACKAGE_CONFIG` issue; direct typecheck with the bundled Node 22 command passed: `& '.tools\node-v22.15.0-win-x64\node.exe' node_modules\typescript\bin\tsc --noEmit`.
+
+## 2026-05-05 UI/UX and Olympic Coach Prompt Update
+
+- Updated the frontend visual system to a minimalist professional sports-tech style.
+- Global colors now use Primary Dark `#303036`, Accent Blue `#30BCED`, and a very light page background.
+- Global typography now uses Google Fonts `Noto Sans TC`; heading font utilities are mapped back to Noto Sans TC for a consistent Traditional Chinese interface.
+- Rounded buttons, segmented tabs, mode cards, and analysis controls were tightened toward rounded-full / rounded-2xl styling.
+- The Start AI Analysis button is hidden during analysis and replaced with a blue spinner, animated progress bar, and rotating reassurance messages:
+  - `正在提取關鍵影格...`
+  - `正在進行生物力學比對...`
+  - `正在生成技術診斷報告...`
+- Updated the Mode A Gemini prompt in `api/analyze.ts` to the Olympic-level swimming biomechanics coach prompt, focused on body alignment, drag, catch, propulsion, rhythm, coordination, and targeted drills.
+- Preserved the Firebase Storage -> Gemini Files API upload flow and Gemini temporary file cleanup.
+- Restored model selection fallback to `gemini-2.5-flash`, with `gemini-2.5-pro` aliases for high/pro/highest settings and warning fallback for unsupported `GEMINI_MODEL` values.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/OneDrive `spawn EPERM` issue appeared inside the sandbox.
