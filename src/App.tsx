@@ -25,7 +25,10 @@ import {
   User as UserIcon,
   Trash2,
   CalendarDays,
-  X
+  X,
+  ShieldCheck,
+  PencilLine,
+  CheckCircle2
 } from 'lucide-react';
 import { analyzeSwim, uploadVideoForAnalysis } from './services/gemini';
 import { AnalysisReport, AnalysisMode } from './types';
@@ -54,6 +57,54 @@ type TrainingCalendarRecord = {
   isMock?: boolean;
   sourceReport?: AnalysisReport & { id: string, createdAt: any, event?: string };
 };
+
+type AdminReviewStatus = 'pending' | 'approved' | 'revised';
+
+type AdminReviewRecord = {
+  id: string;
+  thumbnailLabel: string;
+  analyzedAt: string;
+  stroke: string;
+  event: string;
+  conclusion: string;
+  status: AdminReviewStatus;
+  adminFeedback?: string;
+};
+
+// Firestore planning:
+// reports/{reportId} should add:
+// - status: "pending" | "approved" | "revised"
+// - adminFeedback: string | null
+// When an admin approves or revises a report, persist those fields with updatedAt/reviewedBy metadata.
+const adminReviewMockData: AdminReviewRecord[] = [
+  {
+    id: 'review-001',
+    thumbnailLabel: 'VIDEO 01',
+    analyzedAt: '2026-05-06 09:42',
+    stroke: 'Freestyle',
+    event: '50 Free Technique',
+    conclusion: 'High-elbow catch is present, but the breath timing drops the hip line.',
+    status: 'pending',
+  },
+  {
+    id: 'review-002',
+    thumbnailLabel: 'VIDEO 02',
+    analyzedAt: '2026-05-06 11:18',
+    stroke: 'Breaststroke',
+    event: 'Pullout Review',
+    conclusion: 'The glide is stable, but the kick recovery creates avoidable frontal drag.',
+    status: 'pending',
+  },
+  {
+    id: 'review-003',
+    thumbnailLabel: 'VIDEO 03',
+    analyzedAt: '2026-05-05 20:07',
+    stroke: 'Backstroke',
+    event: 'Rotation Check',
+    conclusion: 'Shoulder rotation is balanced; hand entry is slightly wide on the left side.',
+    status: 'approved',
+  },
+];
 
 const trainingCalendarMockData = createTrainingCalendarMockData();
 
@@ -145,6 +196,225 @@ function buildMonthCalendarDays(baseDate: Date) {
   }
 
   return cells;
+}
+
+function AdminReviewDashboard() {
+  const [reviews, setReviews] = useState<AdminReviewRecord[]>(adminReviewMockData);
+  const [selectedReview, setSelectedReview] = useState<AdminReviewRecord | null>(null);
+  const [adminFeedback, setAdminFeedback] = useState('');
+
+  const handleApprove = (reviewId: string) => {
+    setReviews((items) => items.map((item) => (
+      item.id === reviewId ? { ...item, status: 'approved', adminFeedback: item.adminFeedback } : item
+    )));
+    toast.success('Marked as precise.');
+  };
+
+  const openRevisionModal = (review: AdminReviewRecord) => {
+    setSelectedReview(review);
+    setAdminFeedback(review.adminFeedback || '');
+  };
+
+  const handleSubmitRevision = () => {
+    if (!selectedReview) return;
+
+    const trimmedFeedback = adminFeedback.trim();
+    if (!trimmedFeedback) {
+      toast.error('Please enter the coach correction logic.');
+      return;
+    }
+
+    setReviews((items) => items.map((item) => (
+      item.id === selectedReview.id
+        ? { ...item, status: 'revised', adminFeedback: trimmedFeedback }
+        : item
+    )));
+    setSelectedReview(null);
+    setAdminFeedback('');
+    toast.success('Revision saved for future AI reference.');
+  };
+
+  const statusStyles: Record<AdminReviewStatus, string> = {
+    pending: 'bg-ink/5 text-ink/60',
+    approved: 'bg-accent/10 text-accent',
+    revised: 'bg-yellow-100 text-yellow-700',
+  };
+
+  return (
+    <div className="min-h-screen bg-paper text-ink font-sans selection:bg-accent selection:text-white">
+      <header className="border-b border-ink/10 bg-white/90 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="h-12 w-12 rounded-full bg-accent/10 text-accent flex items-center justify-center">
+              <ShieldCheck className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.28em] font-bold text-accent">Hidden Admin Route</p>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-ink">Admin Review Dashboard</h1>
+            </div>
+          </div>
+          <div className="rounded-full border border-ink/10 px-4 py-2 text-[10px] uppercase tracking-widest font-bold text-ink/50">
+            /admin/reviews
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-6">
+        <section className="rounded-[2rem] border border-ink/10 bg-white p-5 sm:p-8 shadow-xl shadow-ink/5">
+          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+            <div className="space-y-2">
+              <p className="text-[10px] uppercase tracking-[0.28em] font-bold text-accent">AI Quality Loop</p>
+              <h2 className="text-2xl sm:text-4xl font-bold text-ink">Recent AI Analysis Reports</h2>
+              <p className="text-sm text-ink/55 max-w-2xl leading-relaxed">
+                Review AI-generated technique reports, approve precise analysis, or save coach corrections as future model reference data.
+              </p>
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              {(['pending', 'approved', 'revised'] as AdminReviewStatus[]).map((status) => (
+                <div key={status} className="rounded-2xl border border-ink/10 px-4 py-3">
+                  <p className="text-lg font-bold text-ink">{reviews.filter((item) => item.status === status).length}</p>
+                  <p className="text-[9px] uppercase tracking-widest text-ink/40">{status}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-4">
+          {reviews.map((review) => (
+            <article
+              key={review.id}
+              className="rounded-[2rem] border border-ink/10 bg-white p-4 sm:p-6 shadow-sm hover:shadow-lg hover:shadow-ink/5 transition-all"
+            >
+              <div className="grid md:grid-cols-[160px_1fr] gap-5">
+                <div className="aspect-video md:aspect-square rounded-2xl border border-ink/10 bg-paper flex items-center justify-center overflow-hidden">
+                  <div className="h-full w-full bg-[linear-gradient(135deg,#303036_0%,#303036_48%,#30BCED_48%,#30BCED_52%,#f7f9fb_52%)] flex items-end p-4">
+                    <span className="rounded-full bg-white/90 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-ink">
+                      {review.thumbnailLabel}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-5">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={cn(
+                          'rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest',
+                          statusStyles[review.status]
+                        )}>
+                          {review.status}
+                        </span>
+                        <span className="text-[10px] font-mono uppercase tracking-widest text-ink/35">
+                          {review.analyzedAt}
+                        </span>
+                      </div>
+                      <h3 className="text-xl sm:text-2xl font-bold text-ink">{review.stroke}</h3>
+                      <p className="text-xs uppercase tracking-widest font-bold text-accent">{review.event}</p>
+                    </div>
+                    {review.status === 'approved' && <CheckCircle2 className="h-6 w-6 text-accent shrink-0" />}
+                  </div>
+
+                  <div className="rounded-2xl border border-ink/10 bg-paper/70 p-4">
+                    <p className="text-[10px] uppercase tracking-[0.22em] font-bold text-ink/35 mb-2">AI Core Conclusion</p>
+                    <p className="text-sm sm:text-base leading-relaxed text-ink/75">{review.conclusion}</p>
+                    {review.adminFeedback && (
+                      <div className="mt-4 border-t border-ink/10 pt-4">
+                        <p className="text-[10px] uppercase tracking-[0.22em] font-bold text-accent mb-2">Admin Feedback</p>
+                        <p className="text-sm leading-relaxed text-ink/70">{review.adminFeedback}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleApprove(review.id)}
+                      className="flex-1 rounded-full bg-ink px-5 py-3 text-white text-[11px] uppercase tracking-widest font-bold hover:bg-accent transition-colors flex items-center justify-center gap-2"
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      標記為精準 (Approve)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openRevisionModal(review)}
+                      className="flex-1 rounded-full border border-ink/15 px-5 py-3 text-ink text-[11px] uppercase tracking-widest font-bold hover:border-accent hover:text-accent transition-colors flex items-center justify-center gap-2"
+                    >
+                      <PencilLine className="h-4 w-4" />
+                      糾正 AI 誤判 (Revise)
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </article>
+          ))}
+        </section>
+      </main>
+
+      <AnimatePresence>
+        {selectedReview && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-ink/35 backdrop-blur-sm"
+              onClick={() => setSelectedReview(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 16 }}
+              className="relative w-full max-w-xl rounded-[2rem] bg-white p-6 sm:p-8 shadow-2xl"
+            >
+              <div className="flex items-start justify-between gap-4 mb-6">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.28em] font-bold text-accent">Revise AI Judgment</p>
+                  <h2 className="text-2xl font-bold text-ink mt-1">糾正 AI 誤判</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedReview(null)}
+                  className="h-10 w-10 rounded-full bg-ink/5 text-ink/60 hover:bg-accent hover:text-white transition-colors flex items-center justify-center"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <label className="block space-y-3">
+                <span className="text-xs font-bold uppercase tracking-widest text-ink/55">
+                  請輸入教練的正確診斷邏輯（此紀錄將作為未來 AI 分析的參考依據）
+                </span>
+                <textarea
+                  value={adminFeedback}
+                  onChange={(event) => setAdminFeedback(event.target.value)}
+                  className="min-h-40 w-full rounded-2xl border border-ink/15 bg-paper/70 p-4 text-sm leading-relaxed text-ink outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent/20"
+                  placeholder="Example: The issue is not early breathing; the primary correction should be left-side hand entry crossing the midline..."
+                />
+              </label>
+
+              <div className="mt-6 flex flex-col sm:flex-row gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedReview(null)}
+                  className="flex-1 rounded-full border border-ink/15 px-5 py-3 text-[11px] uppercase tracking-widest font-bold text-ink/60 hover:text-ink transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmitRevision}
+                  className="flex-1 rounded-full bg-accent px-5 py-3 text-[11px] uppercase tracking-widest font-bold text-white hover:bg-ink transition-colors"
+                >
+                  Save Revision
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }
 
 // Confirm Modal Component
@@ -239,9 +509,12 @@ class ErrorBoundary extends React.Component<any, any> {
 }
 
 export default function App() {
+  const isAdminReviewRoute = window.location.pathname.endsWith('/admin/reviews')
+    || window.location.hash.replace(/^#/, '') === '/admin/reviews';
+
   return (
     <ErrorBoundary>
-      <AppContent />
+      {isAdminReviewRoute ? <AdminReviewDashboard /> : <AppContent />}
       <Toaster position="top-center" richColors />
     </ErrorBoundary>
   );

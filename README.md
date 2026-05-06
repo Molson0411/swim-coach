@@ -575,3 +575,15 @@ npm.cmd run lint
 - Updated the Mode B prompt in `api/analyze.ts` with a CSS calculation instruction: when two or more distance/time results are available, Gemini must calculate CSS, convert it to pace per 100m, and avoid mixing CSS with SWOLF/DPS when stroke count is missing.
 - Preserved the existing API request handling, Gemini model resolution, Firebase/Gemini Files API flow, and response shape.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/OneDrive `spawn EPERM` issue appeared inside the sandbox.
+
+## 2026-05-06 Admin Review Dashboard
+
+- Added a hidden admin review dashboard route in `src/App.tsx`.
+- Supported routes: `/admin/reviews` and `#/admin/reviews` for static hosting preview compatibility.
+- The dashboard uses mock review data with video thumbnail placeholders, analysis time, stroke, event, AI core conclusion, and review status.
+- Each review card includes `Approve` and `Revise` actions. Approve marks the local mock item as precise; Revise opens a rounded modal for coach correction text.
+- Added an implementation comment defining planned Firestore fields on `reports/{reportId}`:
+  - `status: "pending" | "approved" | "revised"`
+  - `adminFeedback: string | null`
+- Visual design follows the existing sports-tech palette: `#303036` for text/borders, `#30BCED` for important actions, white/light-gray surfaces, and large rounded corners.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/OneDrive `spawn EPERM` issue appeared inside the sandbox.
