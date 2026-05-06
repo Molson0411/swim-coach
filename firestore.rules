@@ -30,6 +30,15 @@ service cloud.firestore {
     //   - missingData: list (optional)
     //   - event: string (optional)
     //
+    // Collection: analysis_reports
+    // Document ID: {reportId}
+    // Fields:
+    //   - createdAt: timestamp (required)
+    //   - strokeType: string (required)
+    //   - aiReport: map (required) - Raw AI report JSON
+    //   - status: string (required) - 'pending', 'approved', or 'revised'
+    //   - adminFeedback: string or null (required)
+    //
     // ===============================================================
 
     // ===============================================================
@@ -93,6 +102,24 @@ service cloud.firestore {
              data.growthAdvice.size() < 5000;
     }
 
+    function isValidAnalysisReport(data) {
+      return data.keys().hasOnly(['createdAt', 'strokeType', 'aiReport', 'status', 'adminFeedback']) &&
+             data.keys().hasAll(['createdAt', 'strokeType', 'aiReport', 'status', 'adminFeedback']) &&
+             data.createdAt is timestamp &&
+             data.strokeType is string &&
+             data.aiReport is map &&
+             data.status in ['pending', 'approved', 'revised'] &&
+             (data.adminFeedback == null || data.adminFeedback is string);
+    }
+
+    function isValidAnalysisReviewUpdate() {
+      return isValidAnalysisReport(request.resource.data) &&
+             request.resource.data.createdAt == resource.data.createdAt &&
+             request.resource.data.strokeType == resource.data.strokeType &&
+             request.resource.data.aiReport == resource.data.aiReport &&
+             request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'adminFeedback']);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -112,6 +139,13 @@ service cloud.firestore {
                       request.resource.data.uid == resource.data.uid &&
                       isValidReport(request.resource.data);
       allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /analysis_reports/{reportId} {
+      allow read: if isAdmin();
+      allow create: if false;
+      allow update: if isAdmin() && isValidAnalysisReviewUpdate();
+      allow delete: if false;
     }
 
     match /test/connection {

@@ -587,3 +587,19 @@ npm.cmd run lint
   - `adminFeedback: string | null`
 - Visual design follows the existing sports-tech palette: `#303036` for text/borders, `#30BCED` for important actions, white/light-gray surfaces, and large rounded corners.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/OneDrive `spawn EPERM` issue appeared inside the sandbox.
+
+## 2026-05-06 Firestore Review Loop Integration
+
+- `/api/analyze.ts` now writes every successful Gemini analysis result to Firestore collection `analysis_reports`.
+- Each `analysis_reports` document contains exactly:
+  - `createdAt`: Firebase Admin server timestamp
+  - `strokeType`: detected stroke or `unknown`
+  - `aiReport`: raw Gemini JSON report
+  - `status`: default `pending`
+  - `adminFeedback`: default `null`
+- `/admin/reviews` now reads real Firestore `analysis_reports` data instead of mock review data.
+- Admin dashboard query orders by `createdAt` descending, then client-sorts pending items to the top.
+- Approve updates `status` to `approved`.
+- Revise updates `status` to `revised` and writes the modal text to `adminFeedback`.
+- `firestore.rules` now allows only admins to read/update `analysis_reports`; client create/delete are blocked, and updates are restricted to `status` and `adminFeedback`.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/OneDrive `spawn EPERM` issue appeared inside the sandbox.

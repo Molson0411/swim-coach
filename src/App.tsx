@@ -45,7 +45,7 @@ import {
   OperationType
 } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 
 type TrainingCalendarRecord = {
   id: string;
@@ -64,47 +64,20 @@ type AdminReviewRecord = {
   id: string;
   thumbnailLabel: string;
   analyzedAt: string;
+  createdAtMs: number;
   stroke: string;
   event: string;
   conclusion: string;
   status: AdminReviewStatus;
   adminFeedback?: string;
+  aiReport?: AnalysisReport;
 };
 
-// Firestore planning:
-// reports/{reportId} should add:
+// Firestore data model:
+// analysis_reports/{reportId} stores:
 // - status: "pending" | "approved" | "revised"
 // - adminFeedback: string | null
-// When an admin approves or revises a report, persist those fields with updatedAt/reviewedBy metadata.
-const adminReviewMockData: AdminReviewRecord[] = [
-  {
-    id: 'review-001',
-    thumbnailLabel: 'VIDEO 01',
-    analyzedAt: '2026-05-06 09:42',
-    stroke: 'Freestyle',
-    event: '50 Free Technique',
-    conclusion: 'High-elbow catch is present, but the breath timing drops the hip line.',
-    status: 'pending',
-  },
-  {
-    id: 'review-002',
-    thumbnailLabel: 'VIDEO 02',
-    analyzedAt: '2026-05-06 11:18',
-    stroke: 'Breaststroke',
-    event: 'Pullout Review',
-    conclusion: 'The glide is stable, but the kick recovery creates avoidable frontal drag.',
-    status: 'pending',
-  },
-  {
-    id: 'review-003',
-    thumbnailLabel: 'VIDEO 03',
-    analyzedAt: '2026-05-05 20:07',
-    stroke: 'Backstroke',
-    event: 'Rotation Check',
-    conclusion: 'Shoulder rotation is balanced; hand entry is slightly wide on the left side.',
-    status: 'approved',
-  },
-];
+// Backend writes createdAt, strokeType, aiReport, status, and adminFeedback.
 
 const trainingCalendarMockData = createTrainingCalendarMockData();
 
@@ -198,16 +171,119 @@ function buildMonthCalendarDays(baseDate: Date) {
   return cells;
 }
 
+function mapAnalysisReportDoc(reviewDoc: { id: string; data: () => any }, index: number): AdminReviewRecord {
+  const data = reviewDoc.data();
+  const aiReport = data.aiReport as AnalysisReport | undefined;
+  const createdAtDate = data.createdAt?.toDate ? data.createdAt.toDate() as Date : null;
+  const status = ['pending', 'approved', 'revised'].includes(data.status) ? data.status as AdminReviewStatus : 'pending';
+
+  return {
+    id: reviewDoc.id,
+    thumbnailLabel: `VIDEO ${String(index + 1).padStart(2, '0')}`,
+    analyzedAt: createdAtDate
+      ? createdAtDate.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+      : 'Pending timestamp',
+    createdAtMs: createdAtDate?.getTime() || 0,
+    stroke: data.strokeType || aiReport?.stroke || 'Unknown Stroke',
+    event: aiReport?.mode === 'B' ? 'Race Data Analysis' : 'Technique Analysis',
+    conclusion: aiReport?.impression || aiReport?.metrics?.analysis || aiReport?.growthAdvice || 'No AI conclusion available.',
+    status,
+    adminFeedback: data.adminFeedback || undefined,
+    aiReport,
+  };
+}
+
 function AdminReviewDashboard() {
-  const [reviews, setReviews] = useState<AdminReviewRecord[]>(adminReviewMockData);
+  const [adminUser, setAdminUser] = useState<User | null>(null);
+  const [isAdminAuthReady, setIsAdminAuthReady] = useState(false);
+  const [reviews, setReviews] = useState<AdminReviewRecord[]>([]);
   const [selectedReview, setSelectedReview] = useState<AdminReviewRecord | null>(null);
   const [adminFeedback, setAdminFeedback] = useState('');
+  const [isReviewLoading, setIsReviewLoading] = useState(true);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
-  const handleApprove = (reviewId: string) => {
-    setReviews((items) => items.map((item) => (
-      item.id === reviewId ? { ...item, status: 'approved', adminFeedback: item.adminFeedback } : item
-    )));
-    toast.success('Marked as precise.');
+  useEffect(() => {
+    let isMounted = true;
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      if (!isMounted) return;
+      setAdminUser(currentUser);
+      setIsAdminAuthReady(true);
+    });
+
+    completeGoogleRedirectSignIn()
+      .then((redirectUser) => {
+        if (!isMounted) return;
+        if (redirectUser) {
+          setAdminUser(redirectUser);
+        }
+        setIsAdminAuthReady(true);
+      })
+      .catch((error) => {
+        if (!isMounted) return;
+        setReviewError(getAuthErrorMessage(error));
+        setIsAdminAuthReady(true);
+      });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!adminUser) {
+      setReviews([]);
+      setIsReviewLoading(false);
+      return;
+    }
+
+    setIsReviewLoading(true);
+    setReviewError(null);
+
+    const reviewsQuery = query(
+      collection(db, 'analysis_reports'),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(reviewsQuery, (snapshot) => {
+      const mappedReviews = snapshot.docs
+        .map((reviewDoc, index) => mapAnalysisReportDoc(reviewDoc, index))
+        .sort((a, b) => {
+          if (a.status === 'pending' && b.status !== 'pending') return -1;
+          if (a.status !== 'pending' && b.status === 'pending') return 1;
+          return b.createdAtMs - a.createdAtMs;
+        });
+
+      setReviews(mappedReviews);
+      setIsReviewLoading(false);
+    }, (error) => {
+      console.error('Failed to load analysis_reports:', error);
+      setReviewError(error instanceof Error ? error.message : String(error));
+      setIsReviewLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [adminUser]);
+
+  const handleAdminSignIn = async () => {
+    try {
+      await signInWithGoogle();
+      toast.success('Signed in.');
+    } catch (error) {
+      toast.error(getAuthErrorMessage(error));
+    }
+  };
+
+  const handleApprove = async (reviewId: string) => {
+    try {
+      await updateDoc(doc(db, 'analysis_reports', reviewId), {
+        status: 'approved',
+      });
+      toast.success('Marked as precise.');
+    } catch (error) {
+      console.error('Failed to approve review:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to approve review.');
+    }
   };
 
   const openRevisionModal = (review: AdminReviewRecord) => {
@@ -215,7 +291,7 @@ function AdminReviewDashboard() {
     setAdminFeedback(review.adminFeedback || '');
   };
 
-  const handleSubmitRevision = () => {
+  const handleSubmitRevision = async () => {
     if (!selectedReview) return;
 
     const trimmedFeedback = adminFeedback.trim();
@@ -224,14 +300,18 @@ function AdminReviewDashboard() {
       return;
     }
 
-    setReviews((items) => items.map((item) => (
-      item.id === selectedReview.id
-        ? { ...item, status: 'revised', adminFeedback: trimmedFeedback }
-        : item
-    )));
-    setSelectedReview(null);
-    setAdminFeedback('');
-    toast.success('Revision saved for future AI reference.');
+    try {
+      await updateDoc(doc(db, 'analysis_reports', selectedReview.id), {
+        status: 'revised',
+        adminFeedback: trimmedFeedback,
+      });
+      setSelectedReview(null);
+      setAdminFeedback('');
+      toast.success('Revision saved for future AI reference.');
+    } catch (error) {
+      console.error('Failed to revise review:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to save revision.');
+    }
   };
 
   const statusStyles: Record<AdminReviewStatus, string> = {
@@ -254,7 +334,7 @@ function AdminReviewDashboard() {
             </div>
           </div>
           <div className="rounded-full border border-ink/10 px-4 py-2 text-[10px] uppercase tracking-widest font-bold text-ink/50">
-            /admin/reviews
+            {adminUser ? adminUser.email : '/admin/reviews'}
           </div>
         </div>
       </header>
@@ -268,6 +348,11 @@ function AdminReviewDashboard() {
               <p className="text-sm text-ink/55 max-w-2xl leading-relaxed">
                 Review AI-generated technique reports, approve precise analysis, or save coach corrections as future model reference data.
               </p>
+              {reviewError && (
+                <p className="text-sm font-bold text-red-500">
+                  {reviewError}
+                </p>
+              )}
             </div>
             <div className="grid grid-cols-3 gap-3 text-center">
               {(['pending', 'approved', 'revised'] as AdminReviewStatus[]).map((status) => (
@@ -279,6 +364,41 @@ function AdminReviewDashboard() {
             </div>
           </div>
         </section>
+
+        {!adminUser && isAdminAuthReady && (
+          <section className="rounded-[2rem] border border-ink/10 bg-white p-8 text-center shadow-xl shadow-ink/5">
+            <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-accent/10 text-accent flex items-center justify-center">
+              <LogIn className="h-6 w-6" />
+            </div>
+            <h2 className="text-2xl font-bold text-ink">Admin sign-in required</h2>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-ink/55">
+              Sign in with an admin account to load Firestore analysis reports and review AI output.
+            </p>
+            <button
+              type="button"
+              onClick={handleAdminSignIn}
+              className="mt-6 rounded-full bg-ink px-6 py-3 text-[11px] uppercase tracking-widest font-bold text-white hover:bg-accent transition-colors"
+            >
+              Sign in with Google
+            </button>
+          </section>
+        )}
+
+        {adminUser && isReviewLoading && (
+          <section className="rounded-[2rem] border border-ink/10 bg-white p-8 text-center shadow-xl shadow-ink/5">
+            <div className="mx-auto mb-4 h-12 w-12 rounded-full border-4 border-accent/20 border-t-accent animate-spin" />
+            <p className="text-sm font-bold uppercase tracking-widest text-ink/50">Loading Firestore reviews...</p>
+          </section>
+        )}
+
+        {adminUser && !isReviewLoading && reviews.length === 0 && (
+          <section className="rounded-[2rem] border border-ink/10 bg-white p-8 text-center shadow-xl shadow-ink/5">
+            <h2 className="text-2xl font-bold text-ink">No analysis reports yet</h2>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-ink/55">
+              New Gemini analysis results will appear here after the backend writes to analysis_reports.
+            </p>
+          </section>
+        )}
 
         <section className="grid gap-4">
           {reviews.map((review) => (

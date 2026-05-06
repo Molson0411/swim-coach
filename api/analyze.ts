@@ -8,7 +8,7 @@ import {
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { getAdminStorageBucket } from "../lib/firebase-admin.js";
+import { getAdminDb, getAdminStorageBucket } from "../lib/firebase-admin.js";
 
 type AnalysisMode = "A" | "B";
 
@@ -192,7 +192,9 @@ async function analyzeWithGemini(
       throw new Error("Gemini API returned an empty response.");
     }
 
-    return JSON.parse(stripCodeFence(text)) as AnalysisReport;
+    const report = JSON.parse(stripCodeFence(text)) as AnalysisReport;
+    await saveAnalysisReport(report);
+    return report;
   } finally {
     if (uploadedVideo?.name) {
       await ai.files.delete({ name: uploadedVideo.name }).catch((error) => {
@@ -200,6 +202,17 @@ async function analyzeWithGemini(
       });
     }
   }
+}
+
+async function saveAnalysisReport(report: AnalysisReport) {
+  const { FieldValue } = await import("firebase-admin/firestore");
+  await (await getAdminDb()).collection("analysis_reports").add({
+    createdAt: FieldValue.serverTimestamp(),
+    strokeType: report.stroke || "unknown",
+    aiReport: report,
+    status: "pending",
+    adminFeedback: null,
+  });
 }
 
 async function uploadVideoToGeminiFile(
