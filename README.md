@@ -613,3 +613,12 @@ npm.cmd run lint
 - `/admin/reviews` now reads `videoUrl` and renders an HTML5 `<video controls>` player in each review card when a video URL exists.
 - `firestore.rules` now includes `videoUrl` in the `analysis_reports` schema and keeps it immutable from admin review updates.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/OneDrive `spawn EPERM` issue appeared inside the sandbox.
+
+## 2026-05-07 videoUrl Null Write Fix
+
+- Updated `src/services/gemini.ts` so Firebase Storage upload resolves with the completed `UploadTaskSnapshot`, then calls `getDownloadURL(uploadSnapshot.ref)`.
+- Added browser console logs after the Firebase Storage download URL is generated and before `/api/analyze` is called with `videoUrl`.
+- Added a frontend guard so requests with `videoStoragePath` cannot be sent to `/api/analyze` without a non-empty `videoUrl`.
+- Updated `api/analyze.ts` to validate that Mode A uploaded-video requests include `videoUrl`; missing values now return HTTP `400` instead of writing `null`.
+- Added a backend console log immediately before writing `analysis_reports` so Vercel logs show the exact `videoUrl` being persisted.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/esbuild `spawn EPERM` issue appeared inside the sandbox.

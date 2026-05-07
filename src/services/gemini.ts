@@ -1,5 +1,5 @@
 import { doc, getDocFromServer } from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
+import { getDownloadURL, ref, uploadBytesResumable, type UploadTaskSnapshot } from "firebase/storage";
 import { auth, db, storage } from "../firebase";
 import { AnalysisMode, AnalysisReport } from "../types";
 
@@ -35,6 +35,13 @@ export async function analyzeSwim(
   inputs: AnalyzeInputs
 ): Promise<AnalysisReport> {
   const { token } = await requireUserWithCredits();
+  if (inputs.videoStoragePath && !inputs.videoUrl?.trim()) {
+    throw new Error("Firebase Storage upload completed, but videoUrl is missing before /api/analyze.");
+  }
+
+  if (inputs.videoUrl) {
+    console.log("[Swim Coach] Sending videoUrl to /api/analyze:", inputs.videoUrl);
+  }
 
   const response = await fetch(`${API_BASE_URL}/api/analyze`, {
     method: "POST",
@@ -63,8 +70,13 @@ export async function uploadVideoForAnalysis(file: File): Promise<StorageUploade
   ].join("/");
   const uploadRef = ref(storage, storagePath);
 
-  await uploadFileToFirebaseStorage({ file, mimeType, uploadRef });
-  const downloadURL = await getDownloadURL(uploadRef);
+  const uploadSnapshot = await uploadFileToFirebaseStorage({ file, mimeType, uploadRef });
+  const downloadURL = await getDownloadURL(uploadSnapshot.ref);
+  if (!downloadURL.trim()) {
+    throw new Error("Firebase Storage returned an empty video download URL.");
+  }
+
+  console.log("[Swim Coach] Firebase Storage download URL generated:", downloadURL);
 
   return {
     storagePath,
@@ -95,12 +107,12 @@ async function uploadFileToFirebaseStorage(input: {
   mimeType: string;
   uploadRef: ReturnType<typeof ref>;
 }) {
-  await new Promise<void>((resolve, reject) => {
+  return new Promise<UploadTaskSnapshot>((resolve, reject) => {
     const task = uploadBytesResumable(input.uploadRef, input.file, {
       contentType: input.mimeType,
     });
 
-    task.on("state_changed", undefined, reject, () => resolve());
+    task.on("state_changed", undefined, reject, () => resolve(task.snapshot));
   });
 }
 

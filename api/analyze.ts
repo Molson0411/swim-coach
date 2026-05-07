@@ -70,6 +70,16 @@ type StagedVideoFile = {
   mimeType: string;
 };
 
+class HttpError extends Error {
+  constructor(
+    public readonly statusCode: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "HttpError";
+  }
+}
+
 const GEMINI_FILE_ACTIVE_TIMEOUT_MS = 120_000;
 const GEMINI_FILE_POLL_INTERVAL_MS = 2_000;
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
@@ -145,12 +155,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const report = await analyzeWithGemini(mode, inputs || {});
+    const normalizedInputs = inputs || {};
+    validateAnalyzeRequest(mode, normalizedInputs);
+
+    const report = await analyzeWithGemini(mode, normalizedInputs);
     res.status(200).json(report);
   } catch (error) {
     console.error("Analyze API error:", error);
     const message = error instanceof Error ? error.message : "Failed to analyze swim data.";
-    res.status(500).json({ error: message });
+    const statusCode = error instanceof HttpError ? error.statusCode : 500;
+    res.status(statusCode).json({ error: message });
   }
 }
 
@@ -207,14 +221,31 @@ async function analyzeWithGemini(
 
 async function saveAnalysisReport(report: AnalysisReport, inputs: AnalyzeInputs) {
   const { FieldValue } = await import("firebase-admin/firestore");
+  const videoUrl = normalizeVideoUrl(inputs.videoUrl);
+  if (inputs.videoStoragePath && !videoUrl) {
+    throw new HttpError(400, "Missing videoUrl in /api/analyze request body for uploaded video.");
+  }
+
+  console.log("[Swim Coach] Writing analysis report with videoUrl:", videoUrl);
+
   await (await getAdminDb()).collection("analysis_reports").add({
     createdAt: FieldValue.serverTimestamp(),
     strokeType: report.stroke || "unknown",
     aiReport: report,
     status: "pending",
     adminFeedback: null,
-    videoUrl: inputs.videoUrl || null,
+    videoUrl,
   });
+}
+
+function validateAnalyzeRequest(mode: AnalysisMode, inputs: AnalyzeInputs) {
+  if (mode === "A" && inputs.videoStoragePath && !normalizeVideoUrl(inputs.videoUrl)) {
+    throw new HttpError(400, "videoUrl is required when videoStoragePath is provided.");
+  }
+}
+
+function normalizeVideoUrl(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 async function uploadVideoToGeminiFile(
