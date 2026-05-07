@@ -1,5 +1,6 @@
 import { doc, getDocFromServer } from "firebase/firestore";
-import { auth, db } from "../firebase";
+import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
+import { auth, db, storage } from "../firebase";
 import { AnalysisMode, AnalysisReport } from "../types";
 
 type AnalyzeInputs = {
@@ -8,6 +9,7 @@ type AnalyzeInputs = {
   videoMimeType?: string;
   videoStoragePath?: string;
   videoStorageBucket?: string;
+  videoUrl?: string;
   textInput?: string;
   event?: string;
   raceEntries?: {
@@ -25,14 +27,7 @@ type StorageUploadedFile = {
   storagePath: string;
   bucket: string;
   mimeType: string;
-};
-
-type StorageUploadSession = {
-  uploadUrl: string;
-  storagePath: string;
-  bucket: string;
-  method: "PUT";
-  headers?: Record<string, string>;
+  downloadURL: string;
 };
 
 export async function analyzeSwim(
@@ -59,37 +54,23 @@ export async function analyzeSwim(
 }
 
 export async function uploadVideoForAnalysis(file: File): Promise<StorageUploadedFile> {
-  const { token } = await requireUserWithCredits();
+  const { user } = await requireUserWithCredits();
   const mimeType = file.type || "video/mp4";
-  const sessionResponse = await fetch(`${API_BASE_URL}/api/files/start-upload`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      fileName: file.name,
-      contentType: mimeType,
-      size: file.size,
-    }),
-  });
+  const storagePath = [
+    "uploads",
+    user.uid,
+    `${Date.now()}-${crypto.randomUUID()}-${sanitizeStorageFileName(file.name)}`,
+  ].join("/");
+  const uploadRef = ref(storage, storagePath);
 
-  if (!sessionResponse.ok) {
-    const error = await sessionResponse.json().catch(() => null);
-    throw new Error(error?.error || "Failed to start video upload.");
-  }
-
-  const uploadSession = await sessionResponse.json() as StorageUploadSession;
-  if (!uploadSession.uploadUrl || !uploadSession.storagePath) {
-    throw new Error("Upload URL was not returned.");
-  }
-
-  await uploadFileToSignedUrl({ file, mimeType, uploadSession });
+  await uploadFileToFirebaseStorage({ file, mimeType, uploadRef });
+  const downloadURL = await getDownloadURL(uploadRef);
 
   return {
-    storagePath: uploadSession.storagePath,
-    bucket: uploadSession.bucket,
+    storagePath,
+    bucket: uploadRef.bucket,
     mimeType,
+    downloadURL,
   };
 }
 
@@ -109,22 +90,24 @@ async function requireUserWithCredits() {
   return { user, token };
 }
 
-async function uploadFileToSignedUrl(input: {
+async function uploadFileToFirebaseStorage(input: {
   file: File;
   mimeType: string;
-  uploadSession: StorageUploadSession;
+  uploadRef: ReturnType<typeof ref>;
 }) {
-  const response = await fetch(input.uploadSession.uploadUrl, {
-    method: input.uploadSession.method || "PUT",
-    headers: {
-      "Content-Type": input.mimeType,
-      ...(input.uploadSession.headers || {}),
-    },
-    body: input.file,
-  });
+  await new Promise<void>((resolve, reject) => {
+    const task = uploadBytesResumable(input.uploadRef, input.file, {
+      contentType: input.mimeType,
+    });
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`影片上傳到 Firebase Storage 失敗 (${response.status})：${detail}`);
-  }
+    task.on("state_changed", undefined, reject, () => resolve());
+  });
+}
+
+function sanitizeStorageFileName(fileName: string) {
+  return fileName
+    .replace(/[/\\?%*:|"<>]/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 120) || "video";
 }

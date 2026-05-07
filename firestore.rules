@@ -38,6 +38,7 @@ service cloud.firestore {
     //   - aiReport: map (required) - Raw AI report JSON
     //   - status: string (required) - 'pending', 'approved', or 'revised'
     //   - adminFeedback: string or null (required)
+    //   - videoUrl: string or null (required)
     //
     // ===============================================================
 
@@ -103,13 +104,14 @@ service cloud.firestore {
     }
 
     function isValidAnalysisReport(data) {
-      return data.keys().hasOnly(['createdAt', 'strokeType', 'aiReport', 'status', 'adminFeedback']) &&
-             data.keys().hasAll(['createdAt', 'strokeType', 'aiReport', 'status', 'adminFeedback']) &&
+      return data.keys().hasOnly(['createdAt', 'strokeType', 'aiReport', 'status', 'adminFeedback', 'videoUrl']) &&
+             data.keys().hasAll(['createdAt', 'strokeType', 'aiReport', 'status', 'adminFeedback', 'videoUrl']) &&
              data.createdAt is timestamp &&
              data.strokeType is string &&
              data.aiReport is map &&
              data.status in ['pending', 'approved', 'revised'] &&
-             (data.adminFeedback == null || data.adminFeedback is string);
+             (data.adminFeedback == null || data.adminFeedback is string) &&
+             (data.videoUrl == null || data.videoUrl is string);
     }
 
     function isValidAnalysisReviewUpdate() {
@@ -117,6 +119,7 @@ service cloud.firestore {
              request.resource.data.createdAt == resource.data.createdAt &&
              request.resource.data.strokeType == resource.data.strokeType &&
              request.resource.data.aiReport == resource.data.aiReport &&
+             request.resource.data.videoUrl == resource.data.videoUrl &&
              request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'adminFeedback']);
     }
 

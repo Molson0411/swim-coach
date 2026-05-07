@@ -17,6 +17,7 @@ import {
   serverTimestamp,
   getDocFromServer
 } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config';
 
 type FirebaseAppConfig = FirebaseOptions & {
@@ -68,6 +69,7 @@ const app = initializeApp(resolvedFirebaseConfig);
 export const auth = getAuth(app);
 auth.languageCode = 'zh-TW';
 export const db = getFirestore(app, resolvedFirebaseConfig.firestoreDatabaseId);
+export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({
   prompt: 'select_account'

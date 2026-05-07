@@ -603,3 +603,13 @@ npm.cmd run lint
 - Revise updates `status` to `revised` and writes the modal text to `adminFeedback`.
 - `firestore.rules` now allows only admins to read/update `analysis_reports`; client create/delete are blocked, and updates are restricted to `status` and `adminFeedback`.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/OneDrive `spawn EPERM` issue appeared inside the sandbox.
+
+## 2026-05-07 Firebase Storage Video Playback Flow
+
+- Exported the Firebase Storage instance from `src/firebase.ts`.
+- Updated frontend video upload flow in `src/services/gemini.ts` to upload videos directly to Firebase Storage under `uploads/{uid}/...` with the Firebase Storage SDK.
+- After upload, the frontend now calls `getDownloadURL()` and passes `videoUrl` into `/api/analyze`.
+- `/api/analyze.ts` now stores `videoUrl` with each Firestore `analysis_reports` document alongside `createdAt`, `strokeType`, `aiReport`, `status`, and `adminFeedback`.
+- `/admin/reviews` now reads `videoUrl` and renders an HTML5 `<video controls>` player in each review card when a video URL exists.
+- `firestore.rules` now includes `videoUrl` in the `analysis_reports` schema and keeps it immutable from admin review updates.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/OneDrive `spawn EPERM` issue appeared inside the sandbox.

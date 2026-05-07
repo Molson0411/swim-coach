@@ -51,6 +51,7 @@ type AnalyzeInputs = {
   videoMimeType?: string;
   videoStoragePath?: string;
   videoStorageBucket?: string;
+  videoUrl?: string;
   textInput?: string;
   event?: string;
   raceEntries?: {
@@ -193,7 +194,7 @@ async function analyzeWithGemini(
     }
 
     const report = JSON.parse(stripCodeFence(text)) as AnalysisReport;
-    await saveAnalysisReport(report);
+    await saveAnalysisReport(report, inputs);
     return report;
   } finally {
     if (uploadedVideo?.name) {
@@ -204,7 +205,7 @@ async function analyzeWithGemini(
   }
 }
 
-async function saveAnalysisReport(report: AnalysisReport) {
+async function saveAnalysisReport(report: AnalysisReport, inputs: AnalyzeInputs) {
   const { FieldValue } = await import("firebase-admin/firestore");
   await (await getAdminDb()).collection("analysis_reports").add({
     createdAt: FieldValue.serverTimestamp(),
@@ -212,6 +213,7 @@ async function saveAnalysisReport(report: AnalysisReport) {
     aiReport: report,
     status: "pending",
     adminFeedback: null,
+    videoUrl: inputs.videoUrl || null,
   });
 }
 

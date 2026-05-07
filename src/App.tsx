@@ -71,13 +71,15 @@ type AdminReviewRecord = {
   status: AdminReviewStatus;
   adminFeedback?: string;
   aiReport?: AnalysisReport;
+  videoUrl?: string;
 };
 
 // Firestore data model:
 // analysis_reports/{reportId} stores:
 // - status: "pending" | "approved" | "revised"
 // - adminFeedback: string | null
-// Backend writes createdAt, strokeType, aiReport, status, and adminFeedback.
+// - videoUrl: string | null
+// Backend writes createdAt, strokeType, aiReport, status, adminFeedback, and videoUrl.
 
 const trainingCalendarMockData = createTrainingCalendarMockData();
 
@@ -190,6 +192,7 @@ function mapAnalysisReportDoc(reviewDoc: { id: string; data: () => any }, index:
     status,
     adminFeedback: data.adminFeedback || undefined,
     aiReport,
+    videoUrl: typeof data.videoUrl === 'string' ? data.videoUrl : undefined,
   };
 }
 
@@ -407,12 +410,21 @@ function AdminReviewDashboard() {
               className="rounded-[2rem] border border-ink/10 bg-white p-4 sm:p-6 shadow-sm hover:shadow-lg hover:shadow-ink/5 transition-all"
             >
               <div className="grid md:grid-cols-[160px_1fr] gap-5">
-                <div className="aspect-video md:aspect-square rounded-2xl border border-ink/10 bg-paper flex items-center justify-center overflow-hidden">
-                  <div className="h-full w-full bg-[linear-gradient(135deg,#303036_0%,#303036_48%,#30BCED_48%,#30BCED_52%,#f7f9fb_52%)] flex items-end p-4">
-                    <span className="rounded-full bg-white/90 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-ink">
-                      {review.thumbnailLabel}
-                    </span>
-                  </div>
+                <div className="aspect-video md:aspect-square rounded-2xl border border-ink/10 bg-paper overflow-hidden">
+                  {review.videoUrl ? (
+                    <video
+                      src={review.videoUrl}
+                      controls
+                      preload="metadata"
+                      className="h-full w-full bg-ink object-contain"
+                    />
+                  ) : (
+                    <div className="h-full w-full bg-[linear-gradient(135deg,#303036_0%,#303036_48%,#30BCED_48%,#30BCED_52%,#f7f9fb_52%)] flex items-end p-4">
+                      <span className="rounded-full bg-white/90 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-ink">
+                        {review.thumbnailLabel}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-5">
@@ -863,6 +875,7 @@ function AppContent() {
         videoStoragePath: uploadedVideo?.storagePath,
         videoStorageBucket: uploadedVideo?.bucket,
         videoMimeType: uploadedVideo?.mimeType,
+        videoUrl: uploadedVideo?.downloadURL,
         textInput: mode === 'A' ? textInput : undefined,
         event: mode === 'A' ? eventA : undefined,
         raceEntries: mode === 'B' ? raceEntries.map(e => ({
