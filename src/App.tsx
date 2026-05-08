@@ -30,7 +30,7 @@ import {
   PencilLine,
   CheckCircle2
 } from 'lucide-react';
-import { analyzeSwim, uploadVideoForAnalysis } from './services/gemini';
+import { analyzeSwim, updateAnalysisReportStatus, uploadVideoForAnalysis } from './services/gemini';
 import { AnalysisReport, AnalysisMode } from './types';
 import { cn } from './lib/utils';
 import { Toaster, toast } from 'sonner';
@@ -69,6 +69,7 @@ type AdminReviewRecord = {
   event: string;
   conclusion: string;
   status: AdminReviewStatus;
+  visibilityStatus: 'active' | 'deleted' | 'archived';
   adminFeedback?: string;
   aiReport?: AnalysisReport;
   videoUrl?: string;
@@ -76,10 +77,11 @@ type AdminReviewRecord = {
 
 // Firestore data model:
 // analysis_reports/{reportId} stores:
-// - status: "pending" | "approved" | "revised"
+// - status: "active" | "deleted" | "archived"
+// - reviewStatus: "pending" | "approved" | "revised"
 // - adminFeedback: string | null
 // - videoUrl: string | null
-// Backend writes createdAt, strokeType, aiReport, status, adminFeedback, and videoUrl.
+// Backend writes createdAt, strokeType, aiReport, status, reviewStatus, adminFeedback, and videoUrl.
 
 const trainingCalendarMockData = createTrainingCalendarMockData();
 
@@ -177,7 +179,14 @@ function mapAnalysisReportDoc(reviewDoc: { id: string; data: () => any }, index:
   const data = reviewDoc.data();
   const aiReport = data.aiReport as AnalysisReport | undefined;
   const createdAtDate = data.createdAt?.toDate ? data.createdAt.toDate() as Date : null;
-  const status = ['pending', 'approved', 'revised'].includes(data.status) ? data.status as AdminReviewStatus : 'pending';
+  const status = ['pending', 'approved', 'revised'].includes(data.reviewStatus)
+    ? data.reviewStatus as AdminReviewStatus
+    : ['pending', 'approved', 'revised'].includes(data.status)
+      ? data.status as AdminReviewStatus
+      : 'pending';
+  const visibilityStatus = ['active', 'deleted', 'archived'].includes(data.status)
+    ? data.status as AdminReviewRecord['visibilityStatus']
+    : 'active';
 
   return {
     id: reviewDoc.id,
@@ -190,6 +199,7 @@ function mapAnalysisReportDoc(reviewDoc: { id: string; data: () => any }, index:
     event: aiReport?.mode === 'B' ? 'Race Data Analysis' : 'Technique Analysis',
     conclusion: aiReport?.impression || aiReport?.metrics?.analysis || aiReport?.growthAdvice || 'No AI conclusion available.',
     status,
+    visibilityStatus,
     adminFeedback: data.adminFeedback || undefined,
     aiReport,
     videoUrl: typeof data.videoUrl === 'string' ? data.videoUrl : undefined,
@@ -243,8 +253,11 @@ function AdminReviewDashboard() {
     setIsReviewLoading(true);
     setReviewError(null);
 
+    // Firestore may require a composite index for status + createdAt.
+    // If this query fails, follow the Firebase console link printed in DevTools.
     const reviewsQuery = query(
       collection(db, 'analysis_reports'),
+      where('status', '==', 'active'),
       orderBy('createdAt', 'desc')
     );
 
@@ -280,7 +293,7 @@ function AdminReviewDashboard() {
   const handleApprove = async (reviewId: string) => {
     try {
       await updateDoc(doc(db, 'analysis_reports', reviewId), {
-        status: 'approved',
+        reviewStatus: 'approved',
       });
       toast.success('Marked as precise.');
     } catch (error) {
@@ -294,6 +307,16 @@ function AdminReviewDashboard() {
     setAdminFeedback(review.adminFeedback || '');
   };
 
+  const handleHideReview = async (reviewId: string) => {
+    try {
+      await updateAnalysisReportStatus(reviewId, 'deleted');
+      toast.success('Report hidden and excluded from future RAG.');
+    } catch (error) {
+      console.error('Failed to hide review:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to hide report.');
+    }
+  };
+
   const handleSubmitRevision = async () => {
     if (!selectedReview) return;
 
@@ -305,7 +328,7 @@ function AdminReviewDashboard() {
 
     try {
       await updateDoc(doc(db, 'analysis_reports', selectedReview.id), {
-        status: 'revised',
+        reviewStatus: 'revised',
         adminFeedback: trimmedFeedback,
       });
       setSelectedReview(null);
@@ -459,6 +482,14 @@ function AdminReviewDashboard() {
                   </div>
 
                   <div className="flex flex-col sm:flex-row gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleHideReview(review.id)}
+                      className="flex-1 rounded-full border border-red-200 px-5 py-3 text-red-500 text-[11px] uppercase tracking-widest font-bold hover:border-red-500 hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      刪除/隱藏
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleApprove(review.id)}

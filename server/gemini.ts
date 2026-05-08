@@ -246,10 +246,12 @@ async function fetchHistoricalCoachFeedback(strokeType: string | null) {
   }
 
   try {
-    // First run may require a Firestore composite index for strokeType + createdAt.
+    // The status filter requires a composite index for status + strokeType + createdAt.
+    // If Firestore rejects this query, click the index creation link printed in the terminal or Vercel logs.
     // Click the index creation link printed in the terminal or Vercel logs to create it.
     const snapshot = await (await getAdminDb())
       .collection("analysis_reports")
+      .where("status", "==", "active")
       .where("strokeType", "==", mappedStrokeType)
       .orderBy("createdAt", "desc")
       .limit(RAG_HISTORY_LIMIT)

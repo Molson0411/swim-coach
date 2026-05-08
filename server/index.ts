@@ -3,6 +3,7 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyzeWithGemini, startGeminiFileUpload } from "./gemini";
+import { getAdminDb, verifyFirebaseToken } from "../lib/firebase-admin.js";
 import type { AnalysisMode } from "../src/types";
 
 const app = express();
@@ -10,6 +11,7 @@ const port = Number(process.env.PORT || 8787);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distPath = path.resolve(__dirname, "../dist");
 const ANALYZE_API_TIMEOUT_MS = 180_000;
+const ALLOWED_REPORT_STATUSES = new Set(["active", "deleted", "archived"]);
 
 app.use(express.json({ limit: "25mb" }));
 
@@ -19,7 +21,7 @@ app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", origin);
     res.header("Vary", "Origin");
   }
-  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.header("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
   res.header("Access-Control-Allow-Headers", "Authorization,Content-Type");
   if (req.method === "OPTIONS") {
     res.sendStatus(204);
@@ -91,6 +93,50 @@ app.post("/api/analyze", async (req, res) => {
     });
   }
 });
+
+app.patch("/api/reports/:id/status", async (req, res) => {
+  try {
+    const reportId = req.params.id?.trim();
+    const newStatus = typeof req.body?.newStatus === "string" ? req.body.newStatus.trim() : "";
+
+    if (!reportId) {
+      res.status(400).json({ error: "reportId is required." });
+      return;
+    }
+
+    if (!ALLOWED_REPORT_STATUSES.has(newStatus)) {
+      res.status(400).json({ error: "newStatus must be active, deleted, or archived." });
+      return;
+    }
+
+    const user = await verifyFirebaseToken(req as never);
+    await assertAdminUser(user.uid, user.email);
+    const { FieldValue } = await import("firebase-admin/firestore");
+
+    await (await getAdminDb()).collection("analysis_reports").doc(reportId).update({
+      status: newStatus,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    res.json({ ok: true, reportId, status: newStatus });
+  } catch (error) {
+    console.error("[Reports Status API] Failed to update analysis_reports status:", error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to update report status.",
+    });
+  }
+});
+
+async function assertAdminUser(uid: string, email: string | undefined) {
+  if (email === "molson0411@gmail.com") {
+    return;
+  }
+
+  const snapshot = await (await getAdminDb()).collection("users").doc(uid).get();
+  if (snapshot.data()?.role !== "admin") {
+    throw new Error("Admin permission required.");
+  }
+}
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
   let timeout: ReturnType<typeof setTimeout> | undefined;

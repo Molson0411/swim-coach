@@ -30,6 +30,8 @@ type StorageUploadedFile = {
   downloadURL: string;
 };
 
+type AnalysisReportStatus = "active" | "deleted" | "archived";
+
 export async function analyzeSwim(
   mode: AnalysisMode,
   inputs: AnalyzeInputs
@@ -60,6 +62,28 @@ export async function analyzeSwim(
   }
 
   return response.json() as Promise<AnalysisReport>;
+}
+
+export async function updateAnalysisReportStatus(
+  reportId: string,
+  newStatus: AnalysisReportStatus
+) {
+  const { token } = await requireUserWithCredits();
+  const response = await fetch(`${API_BASE_URL}/api/reports/${encodeURIComponent(reportId)}/status`, {
+    method: "PATCH",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ newStatus }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.error || "Failed to update report status.");
+  }
+
+  return response.json() as Promise<{ ok: boolean; reportId: string; status: AnalysisReportStatus }>;
 }
 
 export async function uploadVideoForAnalysis(file: File): Promise<StorageUploadedFile> {

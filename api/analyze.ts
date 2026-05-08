@@ -292,7 +292,8 @@ async function saveAnalysisReport(report: AnalysisReport, inputs: AnalyzeInputs)
     createdAt: FieldValue.serverTimestamp(),
     strokeType: resolveSavedStrokeType(report, inputs),
     aiReport: report,
-    status: "pending",
+    status: "active",
+    reviewStatus: "pending",
     adminFeedback: null,
     videoUrl,
   });
@@ -334,10 +335,11 @@ function normalizeVideoUrl(value: unknown) {
 }
 
 function resolveSavedStrokeType(report: AnalysisReport, inputs: AnalyzeInputs) {
-  return inferStrokeType(report.stroke)
+  const canonicalStrokeType = inferStrokeType(report.stroke)
     || resolveRequestedStrokeType(report.mode, inputs)
     || normalizeText(report.stroke)
     || "unknown";
+  return mapStrokeTypeForQuery(canonicalStrokeType) || canonicalStrokeType;
 }
 
 async function buildSystemInstruction(strokeType: string | null) {
@@ -372,10 +374,12 @@ async function fetchHistoricalCoachFeedback(strokeType: string | null) {
   }
 
   try {
-    // First run may require a Firestore composite index for strokeType + createdAt.
+    // The status filter requires a composite index for status + strokeType + createdAt.
+    // If Firestore rejects this query, click the index creation link printed in the terminal or Vercel logs.
     // Click the index creation link printed in the terminal or Vercel logs to create it.
     const snapshot = await (await getAdminDb())
       .collection("analysis_reports")
+      .where("status", "==", "active")
       .where("strokeType", "==", mappedStrokeType)
       .orderBy("createdAt", "desc")
       .limit(RAG_HISTORY_LIMIT)

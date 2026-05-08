@@ -667,3 +667,14 @@ npm.cmd run lint
 - Firestore RAG lookups now map the parsed stroke before `where("strokeType", "==", mappedStrokeType)`.
 - Updated RAG debug logging to show both values: `原始輸入：[freestyle]，映射後查詢：[自由式]`.
 - Verification: `npm.cmd run lint` passed.
+
+## 2026-05-08 analysis_reports Soft Delete
+
+- Changed new `analysis_reports` writes to use visibility `status: "active"` and review workflow `reviewStatus: "pending"`.
+- Added Admin SDK status update API at `/api/reports/[id]/status` plus a matching local Express route at `/api/reports/:id/status`; allowed statuses are `active`, `deleted`, and `archived`.
+- Updated RAG Firestore queries in `api/analyze.ts` and `server/gemini.ts` to include `where("status", "==", "active")`, so hidden reports no longer enter coach-feedback retrieval.
+- Updated `/admin/reviews` to query only active reports and added a `刪除/隱藏` button that calls the status API with `newStatus: "deleted"`.
+- Moved admin review actions to `reviewStatus` so `Approve` / `Revise` no longer overwrite visibility status.
+- Updated `firestore.rules` schema for `status`, `reviewStatus`, optional `updatedAt`, and admin review updates.
+- Added comments noting Firestore composite indexes must be updated for `status + strokeType + createdAt` RAG queries and `status + createdAt` admin list queries.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/esbuild `spawn EPERM` issue appeared inside the sandbox.
