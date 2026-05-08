@@ -52,6 +52,7 @@ type AnalyzeInputs = {
   videoStoragePath?: string;
   videoStorageBucket?: string;
   videoUrl?: string;
+  strokeType?: string;
   textInput?: string;
   event?: string;
   raceEntries?: {
@@ -82,6 +83,8 @@ class HttpError extends Error {
 
 const GEMINI_FILE_ACTIVE_TIMEOUT_MS = 120_000;
 const GEMINI_FILE_POLL_INTERVAL_MS = 2_000;
+const RAG_HISTORY_LIMIT = 10;
+const RAG_INJECTION_LIMIT = 3;
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 const HIGH_ACCURACY_GEMINI_MODEL = "gemini-2.5-pro";
 
@@ -179,6 +182,8 @@ async function analyzeWithGemini(
 
   const ai = new GoogleGenAI({ apiKey });
   const model = getGeminiModel();
+  const requestedStrokeType = resolveRequestedStrokeType(mode, inputs);
+  const systemInstruction = await buildSystemInstruction(requestedStrokeType);
   let uploadedVideo: GeminiFile | null = null;
 
   try {
@@ -197,7 +202,7 @@ async function analyzeWithGemini(
       model,
       contents,
       config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
+        systemInstruction,
         responseMimeType: "application/json",
       },
     });
@@ -230,7 +235,7 @@ async function saveAnalysisReport(report: AnalysisReport, inputs: AnalyzeInputs)
 
   await (await getAdminDb()).collection("analysis_reports").add({
     createdAt: FieldValue.serverTimestamp(),
-    strokeType: report.stroke || "unknown",
+    strokeType: resolveSavedStrokeType(report, inputs),
     aiReport: report,
     status: "pending",
     adminFeedback: null,
@@ -245,6 +250,113 @@ function validateAnalyzeRequest(mode: AnalysisMode, inputs: AnalyzeInputs) {
 }
 
 function normalizeVideoUrl(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function resolveSavedStrokeType(report: AnalysisReport, inputs: AnalyzeInputs) {
+  return inferStrokeType(report.stroke)
+    || resolveRequestedStrokeType(report.mode, inputs)
+    || normalizeText(report.stroke)
+    || "unknown";
+}
+
+async function buildSystemInstruction(strokeType: string | null) {
+  const coachFeedback = await fetchHistoricalCoachFeedback(strokeType);
+  console.log(`[RAG System] 成功注入 ${Math.min(coachFeedback.length, RAG_INJECTION_LIMIT)} 筆教練歷史紀錄`);
+
+  if (coachFeedback.length === 0) {
+    return SYSTEM_INSTRUCTION;
+  }
+
+  const historicalGuidance = coachFeedback
+    .slice(0, RAG_INJECTION_LIMIT)
+    .map((feedback, index) => `${index + 1}. ${feedback}`)
+    .join("\n");
+
+  return [
+    "【絕對遵循：總教練歷史指導原則】",
+    "以下是總教練過去針對此泳姿的專屬糾正紀錄。請務必吸收這些經驗，將其作為本次分析的最高標準，嚴禁給出與以下教練歷史糾正相衝突的建議：",
+    historicalGuidance,
+    "",
+    SYSTEM_INSTRUCTION,
+  ].join("\n");
+}
+
+async function fetchHistoricalCoachFeedback(strokeType: string | null) {
+  if (!strokeType) {
+    return [];
+  }
+
+  try {
+    // First run may require a Firestore composite index for strokeType + createdAt.
+    // Click the index creation link printed in the terminal or Vercel logs to create it.
+    const snapshot = await (await getAdminDb())
+      .collection("analysis_reports")
+      .where("strokeType", "==", strokeType)
+      .orderBy("createdAt", "desc")
+      .limit(RAG_HISTORY_LIMIT)
+      .get();
+
+    return snapshot.docs
+      .map((doc) => doc.data().adminFeedback)
+      .filter((feedback): feedback is string => typeof feedback === "string" && feedback.trim().length > 0)
+      .map((feedback) => feedback.trim());
+  } catch (error) {
+    console.error(`[RAG System] Failed to load coach feedback for strokeType "${strokeType}":`, error);
+    return [];
+  }
+}
+
+function resolveRequestedStrokeType(mode: AnalysisMode, inputs: AnalyzeInputs) {
+  const explicitStroke = normalizeText(inputs.strokeType);
+  if (explicitStroke) {
+    return explicitStroke;
+  }
+
+  const candidates = mode === "B"
+    ? inputs.raceEntries?.map((entry) => entry.event) || []
+    : [inputs.event, inputs.textInput, inputs.videoFileName, inputs.videoStoragePath];
+
+  for (const candidate of candidates) {
+    const strokeType = inferStrokeType(candidate);
+    if (strokeType) {
+      return strokeType;
+    }
+  }
+
+  return null;
+}
+
+function inferStrokeType(value: unknown) {
+  const text = normalizeText(value)?.toLowerCase();
+  if (!text) {
+    return null;
+  }
+
+  if (/自由式|freestyle|\bfree\b|front crawl/.test(text)) {
+    return "freestyle";
+  }
+
+  if (/蛙式|breaststroke|breast/.test(text)) {
+    return "breaststroke";
+  }
+
+  if (/仰式|backstroke|back/.test(text)) {
+    return "backstroke";
+  }
+
+  if (/蝶式|butterfly|\bfly\b/.test(text)) {
+    return "butterfly";
+  }
+
+  if (/混合式|individual medley|\bim\b|medley/.test(text)) {
+    return "medley";
+  }
+
+  return null;
+}
+
+function normalizeText(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
