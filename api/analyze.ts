@@ -85,6 +85,7 @@ const GEMINI_FILE_ACTIVE_TIMEOUT_MS = 120_000;
 const GEMINI_FILE_POLL_INTERVAL_MS = 2_000;
 const RAG_HISTORY_LIMIT = 10;
 const RAG_INJECTION_LIMIT = 3;
+const ANALYZE_API_TIMEOUT_MS = 180_000;
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 const HIGH_ACCURACY_GEMINI_MODEL = "gemini-2.5-pro";
 
@@ -136,6 +137,7 @@ const OLYMPIC_TECHNIQUE_PROMPT = `你是一位專精於競技游泳與運動生�
 const CSS_CALCULATION_PROMPT = `你現在具備運動數據分析師的能力。當使用者提供兩個以上的距離與測驗成績（如 400m 與 50m）時，請強制計算 CSS（臨界泳速）。計算公式為：CSS = (距離2 - 距離1) / (時間2 - 時間1) 算出每公尺秒數後，轉換為每 100 公尺的配速。請獨立計算並精準輸出 CSS 數值，切勿將其與需要划水次數的 SWOLF 或 DPS 混為一談，若缺乏划水次數請直言無法計算 SWOLF/DPS，但務必給出 CSS 結果。`;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  console.log("========== [後端連線確認] 成功進入 Analyze API 內部 ==========");
   setCorsHeaders(req, res);
 
   if (handleCorsPreflight(req, res)) {
@@ -161,14 +163,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const normalizedInputs = inputs || {};
     validateAnalyzeRequest(mode, normalizedInputs);
 
-    const report = await analyzeWithGemini(mode, normalizedInputs);
+    const report = await withTimeout(
+      analyzeWithGemini(mode, normalizedInputs),
+      ANALYZE_API_TIMEOUT_MS,
+      "後端處理逾時，請稍後再試。"
+    );
     res.status(200).json(report);
   } catch (error) {
-    console.error("Analyze API error:", error);
-    const message = error instanceof Error ? error.message : "Failed to analyze swim data.";
-    const statusCode = error instanceof HttpError ? error.statusCode : 500;
-    res.status(statusCode).json({ error: message });
+    console.error("[後端重大錯誤] 執行失敗:", error);
+    const message = error instanceof Error ? error.message : "後端處理失敗";
+    res.status(500).json({ error: message });
   }
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  });
 }
 
 async function analyzeWithGemini(
@@ -183,10 +204,17 @@ async function analyzeWithGemini(
   const ai = new GoogleGenAI({ apiKey });
   const model = getGeminiModel();
   const requestedStrokeType = resolveRequestedStrokeType(mode, inputs);
-  const systemInstruction = await buildSystemInstruction(requestedStrokeType);
+  let systemInstruction = SYSTEM_INSTRUCTION;
   let uploadedVideo: GeminiFile | null = null;
 
   try {
+    try {
+      systemInstruction = await buildSystemInstruction(requestedStrokeType);
+    } catch (error) {
+      console.error("[RAG System] Failed to build dynamic system instruction:", error);
+      throw error;
+    }
+
     if (mode === "A") {
       uploadedVideo = await uploadVideoToGeminiFile(ai, inputs);
     }
@@ -198,13 +226,10 @@ async function analyzeWithGemini(
       ])
       : createUserContent([{ text: buildPrompt(mode, inputs, uploadedVideo) }]);
 
-    const response = await ai.models.generateContent({
+    const response = await callGeminiWithCatch(ai, {
       model,
       contents,
-      config: {
-        systemInstruction,
-        responseMimeType: "application/json",
-      },
+      systemInstruction,
     });
 
     const text = response.text;
@@ -215,6 +240,9 @@ async function analyzeWithGemini(
     const report = JSON.parse(stripCodeFence(text)) as AnalysisReport;
     await saveAnalysisReport(report, inputs);
     return report;
+  } catch (error) {
+    console.error("[Analyze API] Firestore RAG or Gemini execution failed:", error);
+    throw error;
   } finally {
     if (uploadedVideo?.name) {
       await ai.files.delete({ name: uploadedVideo.name }).catch((error) => {
@@ -246,6 +274,29 @@ async function saveAnalysisReport(report: AnalysisReport, inputs: AnalyzeInputs)
 function validateAnalyzeRequest(mode: AnalysisMode, inputs: AnalyzeInputs) {
   if (mode === "A" && inputs.videoStoragePath && !normalizeVideoUrl(inputs.videoUrl)) {
     throw new HttpError(400, "videoUrl is required when videoStoragePath is provided.");
+  }
+}
+
+async function callGeminiWithCatch(
+  ai: GoogleGenAI,
+  input: {
+    model: string;
+    contents: ReturnType<typeof createUserContent>;
+    systemInstruction: string;
+  }
+) {
+  try {
+    return await ai.models.generateContent({
+      model: input.model,
+      contents: input.contents,
+      config: {
+        systemInstruction: input.systemInstruction,
+        responseMimeType: "application/json",
+      },
+    });
+  } catch (error) {
+    console.error("[Gemini API] generateContent failed:", error);
+    throw error;
   }
 }
 

@@ -103,75 +103,80 @@ export async function analyzeWithGemini(
   mode: AnalysisMode,
   inputs: AnalyzeInputs
 ): Promise<AnalysisReport> {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not configured on the server.");
-  }
-
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-  const parts: unknown[] = [];
-
-  if (inputs.videoFileName) {
-    await waitForGeminiFileActive(inputs.videoFileName);
-  }
-
-  if (inputs.videoFileUri) {
-    parts.push({
-      file_data: {
-        mime_type: inputs.videoMimeType || "video/mp4",
-        file_uri: inputs.videoFileUri,
-      },
-    });
-  }
-
-  if (inputs.videoBase64) {
-    parts.push({
-      inline_data: {
-        mime_type: "video/mp4",
-        data: inputs.videoBase64,
-      },
-    });
-  }
-
-  parts.push({ text: buildPrompt(mode, inputs) });
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: SYSTEM_INSTRUCTION }],
-        },
-        contents: [
-          {
-            role: "user",
-            parts,
-          },
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-        },
-      }),
+  try {
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY is not configured on the server.");
     }
-  );
 
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Gemini API request failed (${response.status}): ${detail}`);
+    const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+    const parts: unknown[] = [];
+
+    if (inputs.videoFileName) {
+      await waitForGeminiFileActive(inputs.videoFileName);
+    }
+
+    if (inputs.videoFileUri) {
+      parts.push({
+        file_data: {
+          mime_type: inputs.videoMimeType || "video/mp4",
+          file_uri: inputs.videoFileUri,
+        },
+      });
+    }
+
+    if (inputs.videoBase64) {
+      parts.push({
+        inline_data: {
+          mime_type: "video/mp4",
+          data: inputs.videoBase64,
+        },
+      });
+    }
+
+    parts.push({ text: buildPrompt(mode, inputs) });
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: SYSTEM_INSTRUCTION }],
+          },
+          contents: [
+            {
+              role: "user",
+              parts,
+            },
+          ],
+          generationConfig: {
+            responseMimeType: "application/json",
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`Gemini API request failed (${response.status}): ${detail}`);
+    }
+
+    const data = await response.json() as {
+      candidates?: { content?: { parts?: { text?: string }[] } }[];
+    };
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!text) {
+      throw new Error("Gemini API returned an empty response.");
+    }
+
+    return JSON.parse(stripCodeFence(text)) as AnalysisReport;
+  } catch (error) {
+    console.error("[Gemini API] local analyzeWithGemini failed:", error);
+    throw error;
   }
-
-  const data = await response.json() as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
-  };
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!text) {
-    throw new Error("Gemini API returned an empty response.");
-  }
-
-  return JSON.parse(stripCodeFence(text)) as AnalysisReport;
 }
 
 async function waitForGeminiFileActive(fileName: string) {

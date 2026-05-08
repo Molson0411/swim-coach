@@ -9,6 +9,7 @@ const app = express();
 const port = Number(process.env.PORT || 8787);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distPath = path.resolve(__dirname, "../dist");
+const ANALYZE_API_TIMEOUT_MS = 180_000;
 
 app.use(express.json({ limit: "25mb" }));
 
@@ -19,7 +20,7 @@ app.use((req, res, next) => {
     res.header("Vary", "Origin");
   }
   res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type");
+  res.header("Access-Control-Allow-Headers", "Authorization,Content-Type");
   if (req.method === "OPTIONS") {
     res.sendStatus(204);
     return;
@@ -65,6 +66,7 @@ app.post("/api/files/start-upload", async (req, res) => {
 });
 
 app.post("/api/analyze", async (req, res) => {
+  console.log("========== [後端連線確認] 成功進入 Analyze API 內部 ==========");
   try {
     const { mode, inputs } = req.body as {
       mode?: AnalysisMode;
@@ -76,15 +78,35 @@ app.post("/api/analyze", async (req, res) => {
       return;
     }
 
-    const report = await analyzeWithGemini(mode, inputs || {});
+    const report = await withTimeout(
+      analyzeWithGemini(mode, inputs || {}),
+      ANALYZE_API_TIMEOUT_MS,
+      "後端處理逾時，請稍後再試。"
+    );
     res.json(report);
   } catch (error) {
-    console.error("Analyze API error:", error);
+    console.error("[後端重大錯誤] 執行失敗:", error);
     res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to analyze swim data.",
+      error: error instanceof Error ? error.message : "後端處理失敗",
     });
   }
 });
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  });
+}
 
 app.use(express.static(distPath));
 app.get("*", (_req, res) => {
