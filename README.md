@@ -633,3 +633,29 @@ npm.cmd run lint
 - Wrapped local `server/gemini.ts` Gemini analysis execution in `try...catch` so failures are logged and propagated to the route-level `500` handler.
 - Commit pushed to GitHub main: `0a1fb1f Harden analyze API error handling`.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/esbuild `spawn EPERM` issue appeared inside the sandbox.
+
+## 2026-05-08 Frontend Upload Trace Logs
+
+- Added explicit trace logs to `handleFileChange` and `handleAnalyze` in `src/App.tsx` so DevTools shows button clicks, selected file state, Firebase upload start, download URL, `/api/analyze` call, API result, and personal report history writes.
+- Added `console.warn("[前端阻斷] ...")` before early exits for missing mode, missing Mode A event, invalid Mode B race entries, non-video file selection, and no-video Mode A analysis.
+- Wrapped `uploadVideoForAnalysis` in `src/services/gemini.ts` with `try...catch` and `console.error("[前端上傳錯誤]:", error)` so Firebase Storage failures are visible instead of silently disappearing.
+- Added service-level logs for selected file state, Firebase Storage upload start, download URL retrieval, and `/api/analyze` preparation.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/esbuild `spawn EPERM` issue appeared inside the sandbox.
+
+## 2026-05-08 Gemini Video Payload Binding Fix
+
+- Updated `api/analyze.ts` so Mode A can stage video content from `videoUrl` when a Firebase Storage path is unavailable, downloading the URL to `/tmp` and uploading it through Gemini Files API before calling `generateContent`.
+- Preserved the existing Firebase Storage path flow; `videoStoragePath` remains the preferred server-side source, while `videoUrl` now works as a fallback source for Gemini video parts.
+- Added the requested backend trace log immediately before the Gemini call: `console.log("[後端追蹤] 準備送出的分析請求，是否包含影片:", !!videoUrl, "影片網址:", videoUrl)`.
+- Updated local `server/gemini.ts` to accept `videoUrl`, download it, and attach it as an inline video part for local API testing.
+- Updated prompt video-state text so `videoUrl` is reported as a received video source instead of falling through to "no video".
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/esbuild `spawn EPERM` issue appeared inside the sandbox.
+
+## 2026-05-08 RAG Retrieval Restore
+
+- Confirmed `api/analyze.ts` still injects Firestore coach feedback into Gemini `systemInstruction`, then strengthened the lookup with `console.log("[RAG 檢索前] 目前前端傳入的查詢泳姿為:", normalizedStrokeType)` and `.trim()` normalization before the `where("strokeType", "==", ...)` query.
+- Updated `resolveRequestedStrokeType` to canonicalize explicit `strokeType` values and include `inputs.strokeType` in Mode A candidate parsing.
+- Restored full RAG retrieval in local `server/gemini.ts`, including Firestore `analysis_reports` query by `strokeType`, `createdAt desc`, `limit(10)`, non-empty `adminFeedback` filtering, and top-3 coach feedback prompt injection.
+- Local and Vercel paths now both log `[RAG System] 成功注入 X 筆教練歷史紀錄` after RAG prompt construction.
+- RAG guidance is placed before the base system instruction so coach history remains the highest-priority instruction sent to Gemini.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/esbuild `spawn EPERM` issue appeared inside the sandbox.

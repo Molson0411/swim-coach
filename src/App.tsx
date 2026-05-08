@@ -825,9 +825,12 @@ function AppContent() {
   }, [user]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    console.log('[前端追蹤] 檔案選擇事件已觸發');
     const file = e.target.files?.[0];
+    console.log('[前端追蹤] 目前選擇的檔案狀態:', file || null);
     if (file) {
       if (!file.type.startsWith('video/')) {
+        console.warn('[前端阻斷] 選擇的檔案不是影片，提早結束執行');
         toast.error('請上傳影片檔。');
         e.target.value = '';
         return;
@@ -838,9 +841,16 @@ function AppContent() {
   };
 
   const handleAnalyze = async () => {
-    if (!mode) return;
+    console.log('[前端追蹤] 1. 按鈕已點擊，準備處理上傳');
+    console.log('[前端追蹤] 2. 目前選擇的檔案狀態:', videoFile);
+
+    if (!mode) {
+      console.warn('[前端阻斷] 缺少檔案或必要條件，提早結束執行', { mode, videoFile });
+      return;
+    }
     
     if (mode === 'A' && !eventA) {
+      console.warn('[前端阻斷] 缺少檔案或必要條件，提早結束執行', { mode, eventA, videoFile });
       toast.error('請填寫游泳項目 (例如：50公尺自由式)');
       return;
     }
@@ -849,6 +859,7 @@ function AppContent() {
         entry.event && (entry.event !== '其他' || entry.customEvent) && entry.time && entry.poolLength
       );
       if (!isValid) {
+        console.warn('[前端阻斷] 缺少檔案或必要條件，提早結束執行', { mode, raceEntries });
         toast.error('請填寫所有比賽項目的必填欄位 (項目、秒數與泳池長度)');
         return;
       }
@@ -867,10 +878,17 @@ function AppContent() {
     }, 800);
 
     try {
+      if (mode === 'A' && !videoFile) {
+        console.warn('[前端阻斷] 缺少檔案或必要條件，將以無影片狀態呼叫分析', { mode, videoFile });
+      }
+
+      console.log('[前端追蹤] 3. 開始上傳至 Firebase Storage...');
       const uploadedVideo = mode === 'A' && videoFile
         ? await uploadVideoForAnalysis(videoFile)
         : null;
+      console.log('[前端追蹤] 4. 上傳成功，取得網址:', uploadedVideo?.downloadURL || null);
 
+      console.log('[前端追蹤] 5. 準備呼叫 /api/analyze');
       const result = await analyzeSwim(mode, {
         videoStoragePath: uploadedVideo?.storagePath,
         videoStorageBucket: uploadedVideo?.bucket,
@@ -886,17 +904,21 @@ function AppContent() {
           splits: e.splits
         })) : undefined
       });
+      console.log('[前端追蹤] 6. /api/analyze 已回傳結果:', result);
 
       // Save to Firestore if logged in
       if (user) {
         try {
+          console.log('[前端追蹤] 7. 準備寫入個人 reports 歷史紀錄');
           await addDoc(collection(db, 'reports'), {
             ...result,
             uid: user.uid,
             createdAt: serverTimestamp(),
             event: mode === 'A' ? eventA : (raceEntries[0].event === '其他' ? raceEntries[0].customEvent : raceEntries[0].event)
           });
+          console.log('[前端追蹤] 8. 個人 reports 歷史紀錄寫入完成');
         } catch (err) {
+          console.error('[前端上傳錯誤]:', err);
           handleFirestoreError(err, OperationType.CREATE, 'reports');
         }
       }
@@ -908,6 +930,7 @@ function AppContent() {
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }, 500);
     } catch (error) {
+      console.error('[前端上傳錯誤]:', error);
       console.error('Analysis failed:', error);
       toast.error(error instanceof Error ? error.message : '分析失敗，請稍後再試。');
     } finally {

@@ -1,10 +1,13 @@
 import type { AnalysisMode, AnalysisReport } from "../src/types";
+import { getAdminDb } from "../lib/firebase-admin.js";
 
 type AnalyzeInputs = {
   videoBase64?: string;
   videoFileUri?: string;
   videoFileName?: string;
   videoMimeType?: string;
+  videoUrl?: string;
+  strokeType?: string;
   textInput?: string;
   event?: string;
   raceEntries?: {
@@ -15,6 +18,9 @@ type AnalyzeInputs = {
     splits?: string;
   }[];
 };
+
+const RAG_HISTORY_LIMIT = 10;
+const RAG_INJECTION_LIMIT = 3;
 
 const SYSTEM_INSTRUCTION = `你是一位專業游泳教練與運動數據分析師，請使用繁體中文回答。
 模式 A：分析影片、文字描述與游泳項目，輸出動作觀察、主要問題與訓練建議。
@@ -48,7 +54,7 @@ function buildPrompt(mode: AnalysisMode, inputs: AnalyzeInputs) {
 輸入模式 A：影片與動作分析
 游泳項目：${inputs.event || "未提供"}
 使用者補充描述：${inputs.textInput || "未提供"}
-影片狀態：${inputs.videoFileUri || inputs.videoBase64 ? "已提供影片" : "未提供影片"}`;
+影片狀態：${inputs.videoFileUri || inputs.videoBase64 || inputs.videoUrl ? "已提供影片" : "未提供影片"}`;
   }
 
   return `${schema}
@@ -111,6 +117,8 @@ export async function analyzeWithGemini(
 
     const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
     const parts: unknown[] = [];
+    const requestedStrokeType = resolveRequestedStrokeType(mode, inputs);
+    const systemInstruction = await buildSystemInstruction(requestedStrokeType);
 
     if (inputs.videoFileName) {
       await waitForGeminiFileActive(inputs.videoFileName);
@@ -134,7 +142,14 @@ export async function analyzeWithGemini(
       });
     }
 
+    if (!inputs.videoFileUri && !inputs.videoBase64 && inputs.videoUrl) {
+      parts.push(await buildInlineVideoPartFromUrl(inputs.videoUrl, inputs.videoMimeType || "video/mp4"));
+    }
+
     parts.push({ text: buildPrompt(mode, inputs) });
+
+    const videoUrl = inputs.videoUrl || inputs.videoFileUri || null;
+    console.log("[後端追蹤] 準備送出的分析請求，是否包含影片:", !!videoUrl, "影片網址:", videoUrl);
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
@@ -143,7 +158,7 @@ export async function analyzeWithGemini(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           systemInstruction: {
-            parts: [{ text: SYSTEM_INSTRUCTION }],
+            parts: [{ text: systemInstruction }],
           },
           contents: [
             {
@@ -177,6 +192,127 @@ export async function analyzeWithGemini(
     console.error("[Gemini API] local analyzeWithGemini failed:", error);
     throw error;
   }
+}
+
+async function buildSystemInstruction(strokeType: string | null) {
+  const coachFeedback = await fetchHistoricalCoachFeedback(strokeType);
+  console.log(`[RAG System] 成功注入 ${Math.min(coachFeedback.length, RAG_INJECTION_LIMIT)} 筆教練歷史紀錄`);
+
+  if (coachFeedback.length === 0) {
+    return SYSTEM_INSTRUCTION;
+  }
+
+  const historicalGuidance = coachFeedback
+    .slice(0, RAG_INJECTION_LIMIT)
+    .map((feedback, index) => `${index + 1}. ${feedback}`)
+    .join("\n");
+
+  return [
+    "【絕對遵循：總教練歷史指導原則】",
+    "以下是總教練過去針對此泳姿的專屬糾正紀錄。請務必吸收這些經驗，將其作為本次分析的最高標準，嚴禁給出與以下教練歷史糾正相衝突的建議：",
+    historicalGuidance,
+    "",
+    SYSTEM_INSTRUCTION,
+  ].join("\n");
+}
+
+async function fetchHistoricalCoachFeedback(strokeType: string | null) {
+  const normalizedStrokeType = normalizeText(strokeType);
+  console.log("[RAG 檢索前] 目前前端傳入的查詢泳姿為:", normalizedStrokeType);
+
+  if (!normalizedStrokeType) {
+    return [];
+  }
+
+  try {
+    // First run may require a Firestore composite index for strokeType + createdAt.
+    // Click the index creation link printed in the terminal or Vercel logs to create it.
+    const snapshot = await (await getAdminDb())
+      .collection("analysis_reports")
+      .where("strokeType", "==", normalizedStrokeType)
+      .orderBy("createdAt", "desc")
+      .limit(RAG_HISTORY_LIMIT)
+      .get();
+
+    return snapshot.docs
+      .map((doc) => doc.data().adminFeedback)
+      .filter((feedback): feedback is string => typeof feedback === "string" && feedback.trim().length > 0)
+      .map((feedback) => feedback.trim());
+  } catch (error) {
+    console.error(`[RAG System] Failed to load coach feedback for strokeType "${normalizedStrokeType}":`, error);
+    return [];
+  }
+}
+
+function resolveRequestedStrokeType(mode: AnalysisMode, inputs: AnalyzeInputs) {
+  const explicitStroke = inferStrokeType(inputs.strokeType) || normalizeText(inputs.strokeType);
+  if (explicitStroke) {
+    return explicitStroke;
+  }
+
+  const candidates = mode === "B"
+    ? inputs.raceEntries?.map((entry) => entry.event) || []
+    : [inputs.event, inputs.strokeType, inputs.textInput, inputs.videoFileName];
+
+  for (const candidate of candidates) {
+    const strokeType = inferStrokeType(candidate);
+    if (strokeType) {
+      return strokeType;
+    }
+  }
+
+  return null;
+}
+
+function inferStrokeType(value: unknown) {
+  const text = normalizeText(value)?.toLowerCase();
+  if (!text) {
+    return null;
+  }
+
+  if (/自由式|freestyle|\bfree\b|front crawl/.test(text)) {
+    return "freestyle";
+  }
+
+  if (/蛙式|breaststroke|breast/.test(text)) {
+    return "breaststroke";
+  }
+
+  if (/仰式|backstroke|back/.test(text)) {
+    return "backstroke";
+  }
+
+  if (/蝶式|butterfly|\bfly\b/.test(text)) {
+    return "butterfly";
+  }
+
+  if (/混合式|個人混合式|individual medley|\bim\b|medley/.test(text)) {
+    return "medley";
+  }
+
+  return null;
+}
+
+function normalizeText(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+async function buildInlineVideoPartFromUrl(videoUrl: string, fallbackMimeType: string) {
+  const response = await fetch(videoUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to download videoUrl (${response.status}): ${await response.text().catch(() => "")}`);
+  }
+
+  const contentType = response.headers.get("content-type");
+  const mimeType = contentType?.startsWith("video/") ? contentType : fallbackMimeType;
+  const data = Buffer.from(await response.arrayBuffer()).toString("base64");
+
+  return {
+    inline_data: {
+      mime_type: mimeType,
+      data,
+    },
+  };
 }
 
 async function waitForGeminiFileActive(fileName: string) {

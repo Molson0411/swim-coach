@@ -5,9 +5,12 @@ import {
   createUserContent,
   type File as GeminiFile,
 } from "@google/genai";
+import { createWriteStream } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { getAdminDb, getAdminStorageBucket } from "../lib/firebase-admin.js";
 
 type AnalysisMode = "A" | "B";
@@ -226,10 +229,14 @@ async function analyzeWithGemini(
       ])
       : createUserContent([{ text: buildPrompt(mode, inputs, uploadedVideo) }]);
 
+    const videoUrl = normalizeVideoUrl(inputs.videoUrl);
+    console.log("[後端追蹤] 準備送出的分析請求，是否包含影片:", !!videoUrl, "影片網址:", videoUrl);
+
     const response = await callGeminiWithCatch(ai, {
       model,
       contents,
       systemInstruction,
+      videoUrl,
     });
 
     const text = response.text;
@@ -283,9 +290,11 @@ async function callGeminiWithCatch(
     model: string;
     contents: ReturnType<typeof createUserContent>;
     systemInstruction: string;
+    videoUrl: string | null;
   }
 ) {
   try {
+    console.log("[後端追蹤] 準備送出的分析請求，是否包含影片:", !!input.videoUrl, "影片網址:", input.videoUrl);
     return await ai.models.generateContent({
       model: input.model,
       contents: input.contents,
@@ -334,7 +343,10 @@ async function buildSystemInstruction(strokeType: string | null) {
 }
 
 async function fetchHistoricalCoachFeedback(strokeType: string | null) {
-  if (!strokeType) {
+  const normalizedStrokeType = normalizeText(strokeType);
+  console.log("[RAG 檢索前] 目前前端傳入的查詢泳姿為:", normalizedStrokeType);
+
+  if (!normalizedStrokeType) {
     return [];
   }
 
@@ -343,7 +355,7 @@ async function fetchHistoricalCoachFeedback(strokeType: string | null) {
     // Click the index creation link printed in the terminal or Vercel logs to create it.
     const snapshot = await (await getAdminDb())
       .collection("analysis_reports")
-      .where("strokeType", "==", strokeType)
+      .where("strokeType", "==", normalizedStrokeType)
       .orderBy("createdAt", "desc")
       .limit(RAG_HISTORY_LIMIT)
       .get();
@@ -353,20 +365,20 @@ async function fetchHistoricalCoachFeedback(strokeType: string | null) {
       .filter((feedback): feedback is string => typeof feedback === "string" && feedback.trim().length > 0)
       .map((feedback) => feedback.trim());
   } catch (error) {
-    console.error(`[RAG System] Failed to load coach feedback for strokeType "${strokeType}":`, error);
+    console.error(`[RAG System] Failed to load coach feedback for strokeType "${normalizedStrokeType}":`, error);
     return [];
   }
 }
 
 function resolveRequestedStrokeType(mode: AnalysisMode, inputs: AnalyzeInputs) {
-  const explicitStroke = normalizeText(inputs.strokeType);
+  const explicitStroke = inferStrokeType(inputs.strokeType) || normalizeText(inputs.strokeType);
   if (explicitStroke) {
     return explicitStroke;
   }
 
   const candidates = mode === "B"
     ? inputs.raceEntries?.map((entry) => entry.event) || []
-    : [inputs.event, inputs.textInput, inputs.videoFileName, inputs.videoStoragePath];
+    : [inputs.event, inputs.strokeType, inputs.textInput, inputs.videoFileName, inputs.videoStoragePath];
 
   for (const candidate of candidates) {
     const strokeType = inferStrokeType(candidate);
@@ -442,16 +454,42 @@ async function uploadVideoToGeminiFile(
 }
 
 async function stageVideoFile(inputs: AnalyzeInputs): Promise<StagedVideoFile | null> {
-  const mimeType = inputs.videoMimeType || "video/mp4";
+  let mimeType = inputs.videoMimeType || "video/mp4";
   const tempDir = await mkdtemp(join(tmpdir(), "swim-coach-video-"));
-  const extension = getVideoExtension(inputs.videoStoragePath || inputs.videoFileName, mimeType);
-  const displayName = getDisplayName(inputs.videoStoragePath || inputs.videoFileName);
+  const videoUrl = normalizeVideoUrl(inputs.videoUrl);
+  const sourceName = inputs.videoStoragePath || inputs.videoFileName || videoUrl || undefined;
+  const extension = getVideoExtension(sourceName, mimeType);
+  const displayName = getDisplayName(sourceName);
   const tempPath = join(tempDir, `upload${extension}`);
 
   try {
     if (inputs.videoStoragePath) {
       const bucket = await getAdminStorageBucket();
       await bucket.file(inputs.videoStoragePath).download({ destination: tempPath });
+      return {
+        tempDir,
+        path: tempPath,
+        displayName,
+        mimeType,
+      };
+    }
+
+    if (videoUrl) {
+      const response = await fetch(videoUrl);
+      if (!response.ok || !response.body) {
+        throw new Error(`Failed to download Firebase Storage videoUrl (${response.status}): ${await response.text().catch(() => "")}`);
+      }
+
+      const responseMimeType = response.headers.get("content-type");
+      if (responseMimeType?.startsWith("video/")) {
+        mimeType = responseMimeType;
+      }
+
+      await pipeline(
+        Readable.fromWeb(response.body as never),
+        createWriteStream(tempPath)
+      );
+
       return {
         tempDir,
         path: tempPath,
@@ -555,6 +593,10 @@ function buildVideoState(inputs: AnalyzeInputs, uploadedVideo: GeminiFile | null
 
   if (inputs.videoStoragePath) {
     return `Firebase Storage object received but no Gemini file was attached: gs://${inputs.videoStorageBucket || "configured bucket"}/${inputs.videoStoragePath}`;
+  }
+
+  if (inputs.videoUrl) {
+    return `Firebase Storage download URL received but no Gemini file was attached: ${inputs.videoUrl}`;
   }
 
   if (inputs.videoBase64) {
