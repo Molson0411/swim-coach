@@ -622,3 +622,14 @@ npm.cmd run lint
 - Updated `api/analyze.ts` to validate that Mode A uploaded-video requests include `videoUrl`; missing values now return HTTP `400` instead of writing `null`.
 - Added a backend console log immediately before writing `analysis_reports` so Vercel logs show the exact `videoUrl` being persisted.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/esbuild `spawn EPERM` issue appeared inside the sandbox.
+
+## 2026-05-08 Analyze API Debug Hardening
+
+- Added an entry confirmation log at the top of both `api/analyze.ts` and the local Express `/api/analyze` route in `server/index.ts`.
+- Standardized fatal backend logging with `console.error("[後端重大錯誤] 執行失敗:", error)` and guaranteed HTTP `500` JSON responses so the frontend does not stay pending indefinitely.
+- Wrapped Firestore RAG prompt construction and Gemini `generateContent` calls in explicit `try...catch` blocks in `api/analyze.ts`.
+- Added a 180-second API timeout guard around analysis execution in both Vercel and local Express analyze handlers.
+- Updated local Express CORS to allow the `Authorization` header used by Firebase ID token requests.
+- Wrapped local `server/gemini.ts` Gemini analysis execution in `try...catch` so failures are logged and propagated to the route-level `500` handler.
+- Commit pushed to GitHub main: `0a1fb1f Harden analyze API error handling`.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/esbuild `spawn EPERM` issue appeared inside the sandbox.
