@@ -659,3 +659,11 @@ npm.cmd run lint
 - Local and Vercel paths now both log `[RAG System] 成功注入 X 筆教練歷史紀錄` after RAG prompt construction.
 - RAG guidance is placed before the base system instruction so coach history remains the highest-priority instruction sent to Gemini.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/esbuild `spawn EPERM` issue appeared inside the sandbox.
+
+## 2026-05-08 RAG Stroke Mapping
+
+- Added a backend stroke mapping table in both `api/analyze.ts` and `server/gemini.ts` so canonical AI/frontend labels map to the Firestore coach-history labels.
+- Mappings include `freestyle/free/front crawl -> 自由式`, `breaststroke/breast -> 蛙式`, `backstroke/back -> 仰式`, `butterfly/fly -> 蝶式`, and `medley/im/individual medley -> 混合式`.
+- Firestore RAG lookups now map the parsed stroke before `where("strokeType", "==", mappedStrokeType)`.
+- Updated RAG debug logging to show both values: `原始輸入：[freestyle]，映射後查詢：[自由式]`.
+- Verification: `npm.cmd run lint` passed.

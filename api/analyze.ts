@@ -91,6 +91,26 @@ const RAG_INJECTION_LIMIT = 3;
 const ANALYZE_API_TIMEOUT_MS = 180_000;
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 const HIGH_ACCURACY_GEMINI_MODEL = "gemini-2.5-pro";
+const STROKE_QUERY_LABELS: Record<string, string> = {
+  freestyle: "自由式",
+  free: "自由式",
+  "front crawl": "自由式",
+  自由式: "自由式",
+  breaststroke: "蛙式",
+  breast: "蛙式",
+  蛙式: "蛙式",
+  backstroke: "仰式",
+  back: "仰式",
+  仰式: "仰式",
+  butterfly: "蝶式",
+  fly: "蝶式",
+  蝶式: "蝶式",
+  medley: "混合式",
+  im: "混合式",
+  "individual medley": "混合式",
+  混合式: "混合式",
+  個人混合式: "混合式",
+};
 
 const SYSTEM_INSTRUCTION = [
   "You are a professional swimming coach and race data analyst.",
@@ -344,9 +364,10 @@ async function buildSystemInstruction(strokeType: string | null) {
 
 async function fetchHistoricalCoachFeedback(strokeType: string | null) {
   const normalizedStrokeType = normalizeText(strokeType);
-  console.log("[RAG 檢索前] 目前前端傳入的查詢泳姿為:", normalizedStrokeType);
+  const mappedStrokeType = mapStrokeTypeForQuery(normalizedStrokeType);
+  console.log(`[RAG 檢索前] 原始輸入：[${normalizedStrokeType || ""}]，映射後查詢：[${mappedStrokeType || ""}]`);
 
-  if (!normalizedStrokeType) {
+  if (!mappedStrokeType) {
     return [];
   }
 
@@ -355,7 +376,7 @@ async function fetchHistoricalCoachFeedback(strokeType: string | null) {
     // Click the index creation link printed in the terminal or Vercel logs to create it.
     const snapshot = await (await getAdminDb())
       .collection("analysis_reports")
-      .where("strokeType", "==", normalizedStrokeType)
+      .where("strokeType", "==", mappedStrokeType)
       .orderBy("createdAt", "desc")
       .limit(RAG_HISTORY_LIMIT)
       .get();
@@ -365,7 +386,7 @@ async function fetchHistoricalCoachFeedback(strokeType: string | null) {
       .filter((feedback): feedback is string => typeof feedback === "string" && feedback.trim().length > 0)
       .map((feedback) => feedback.trim());
   } catch (error) {
-    console.error(`[RAG System] Failed to load coach feedback for strokeType "${normalizedStrokeType}":`, error);
+    console.error(`[RAG System] Failed to load coach feedback for strokeType "${mappedStrokeType}":`, error);
     return [];
   }
 }
@@ -417,6 +438,19 @@ function inferStrokeType(value: unknown) {
   }
 
   return null;
+}
+
+function mapStrokeTypeForQuery(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  const normalized = trimmed.toLowerCase();
+  return STROKE_QUERY_LABELS[trimmed]
+    || STROKE_QUERY_LABELS[normalized]
+    || inferStrokeType(trimmed)
+    || trimmed;
 }
 
 function normalizeText(value: unknown) {
