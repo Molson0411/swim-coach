@@ -15,6 +15,10 @@ type AnalyzeInputs = {
   targetDescription?: string;
   textInput?: string;
   event?: string;
+  athleteProfile?: {
+    gender: "M" | "F" | "";
+    birthDate: string;
+  };
   historicalFindings?: string[];
   raceEntries?: {
     event: string;

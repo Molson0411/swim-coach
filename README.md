@@ -769,3 +769,12 @@ npm.cmd run lint
 - Parse failures now log the raw Gemini response and sanitized response before throwing a clear frontend-facing error.
 - This fixes failures such as `Unexpected non-whitespace character after JSON` when Gemini returns extra prose around the JSON object.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-13 Mode B Athlete Profile Calibration
+
+- Added an Athlete Profile modal in `App.tsx` that intercepts first-time Mode B entry until gender and birth date are provided.
+- Added `athleteProfile` state with `gender` and `birthDate`, plus a required Male/Female dropdown and date input.
+- Mode B analysis payloads now send `athleteProfile` through `src/services/gemini.ts` to `/api/analyze`.
+- Added demographic calibration prompts in `api/analyze.ts` and `server/gemini.ts` so FINA Points use gender-specific base times and age-aware physiology guidance.
+- Personal Firestore `reports` writes now preserve the Mode B `athleteProfile` used for the analysis.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

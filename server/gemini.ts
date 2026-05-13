@@ -13,6 +13,10 @@ type AnalyzeInputs = {
   strokeType?: string;
   textInput?: string;
   event?: string;
+  athleteProfile?: {
+    gender: "M" | "F" | "";
+    birthDate: string;
+  };
   historicalFindings?: string[];
   raceEntries?: {
     event: string;
@@ -176,6 +180,7 @@ Mode B strict output rules:
 - Calculate or estimate SWOLF, DPS, CSS, and FINA points from lap data.
 - Return performanceMetrics and trainingPlan. Keep metrics identical to performanceMetrics for backward compatibility.
 - If historicalFindings are provided, trainingPlan.drills must prioritize corrective drills from the Advanced Drill Mapping matrix above. Add the exact suffix "(Ref: Mode A)" after each linked drill name or linked drill sentence.
+${formatAthleteProfile(inputs.athleteProfile)}
 ${formatHistoricalFindings(inputs.historicalFindings)}
 ${inputs.raceEntries?.map((entry, index) => (
   `項目 ${index + 1}：${entry.event}，時間：${entry.time}，每趟划手數：${formatNumberArray(entry.strokeCounts)}，泳池長度：${entry.poolLength}，每趟分段：${formatNumberArray(entry.splits)}`
@@ -191,6 +196,20 @@ function formatHistoricalFindings(findings: AnalyzeInputs["historicalFindings"])
     "Historical Mode A findings for cross-mode planning:",
     ...findings.map((finding, index) => `${index + 1}. ${finding}`),
   ].join("\n");
+}
+
+function formatAthleteProfile(profile: AnalyzeInputs["athleteProfile"]) {
+  const gender = profile?.gender === "M" ? "Male" : profile?.gender === "F" ? "Female" : "not provided";
+  const birthDate = normalizeText(profile?.birthDate) || "not provided";
+
+  if (gender === "not provided" || birthDate === "not provided") {
+    return "【個人化生理基準解析 (Demographic Calibration)】\n本次分析未提供完整泳者性別或出生年月日。若需精準 FINA Points 與年齡分層訓練建議，請在 missingData 中標示缺少 athleteProfile.gender 或 athleteProfile.birthDate。";
+  }
+
+  return `【個人化生理基準解析 (Demographic Calibration)】
+本次分析的泳者性別為：${gender}，出生年月日為：${birthDate}。
+1. 在計算 FINA Points 時，必須嚴格對應其性別的基準時間 (Base Time) 進行精算。
+2. 在撰寫 efficiencyAnalysis 與 growthAdvice 時，必須考量其「年齡」所處的生理發展階段（如：青少年的神經肌肉徵召、成年人的最大攝氧量等），給出符合其年齡區間的科學評價與重訓建議。`;
 }
 
 function formatNumberArray(values?: number[]) {

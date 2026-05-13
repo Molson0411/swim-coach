@@ -148,6 +148,11 @@ type RaceEntryState = {
   strokeCounts: string[];
 };
 
+type AthleteProfile = {
+  gender: 'M' | 'F' | '';
+  birthDate: string;
+};
+
 function extractDistanceFromEvent(event: string) {
   const match = event.match(/(\d+)\s*公尺/);
   return match ? Number(match[1]) : 0;
@@ -841,6 +846,96 @@ function AdminReviewDashboard() {
 }
 
 // Confirm Modal Component
+function AthleteProfileModal({
+  isOpen,
+  initialProfile,
+  onSave,
+  onCancel,
+}: {
+  isOpen: boolean;
+  initialProfile: AthleteProfile;
+  onSave: (profile: AthleteProfile) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState<AthleteProfile>(initialProfile);
+
+  useEffect(() => {
+    if (isOpen) {
+      setDraft(initialProfile);
+    }
+  }, [initialProfile, isOpen]);
+
+  const canSave = Boolean(draft.gender && draft.birthDate);
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onCancel}
+            className="absolute inset-0 bg-ink/40 backdrop-blur-sm"
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 20 }}
+            className="relative w-full max-w-md rounded-[2rem] border border-ink/10 bg-white p-7 shadow-2xl"
+          >
+            <div className="mb-6 flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#2D3047] text-white">
+                <UserIcon className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-accent">Mode B Calibration</p>
+                <h3 className="mt-1 text-2xl font-bold italic font-serif text-ink leading-tight">
+                  建立專屬泳者生理檔案 (Athlete Profile)
+                </h3>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <label className="block space-y-2">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-ink/50">Gender</span>
+                <select
+                  value={draft.gender}
+                  onChange={(event) => setDraft((current) => ({ ...current, gender: event.target.value as AthleteProfile['gender'] }))}
+                  className="w-full rounded-2xl border border-ink/10 bg-paper/50 px-4 py-3 text-sm font-bold text-ink outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent/20"
+                >
+                  <option value="">Select gender</option>
+                  <option value="M">Male</option>
+                  <option value="F">Female</option>
+                </select>
+              </label>
+
+              <label className="block space-y-2">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-ink/50">Birth Date</span>
+                <input
+                  type="date"
+                  value={draft.birthDate}
+                  onChange={(event) => setDraft((current) => ({ ...current, birthDate: event.target.value }))}
+                  className="w-full rounded-2xl border border-ink/10 bg-paper/50 px-4 py-3 text-sm font-bold text-ink outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent/20"
+                />
+              </label>
+            </div>
+
+            <button
+              type="button"
+              disabled={!canSave}
+              onClick={() => canSave && onSave(draft)}
+              className="mt-7 w-full rounded-full bg-[#2D3047] px-5 py-4 text-[11px] font-bold uppercase tracking-widest text-white shadow-lg shadow-ink/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#93B7BE] hover:shadow-lg active:scale-95 disabled:cursor-not-allowed disabled:bg-gray-400 disabled:shadow-none disabled:hover:translate-y-0"
+            >
+              Save & Continue
+            </button>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 function ConfirmModal({ isOpen, title, message, onConfirm, onCancel }: { 
   isOpen: boolean, 
   title: string, 
@@ -979,6 +1074,8 @@ function AppContent() {
 
   // Mode B Inputs
   const [raceEntries, setRaceEntries] = useState<RaceEntryState[]>(() => [createRaceEntry()]);
+  const [athleteProfile, setAthleteProfile] = useState<AthleteProfile>({ gender: '', birthDate: '' });
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -1025,6 +1122,23 @@ function AppContent() {
   const isLastTutorialStep = currentStep === tutorialSteps.length - 1;
   const isAuthenticated = Boolean(user);
   const modeBMetrics = report?.performanceMetrics || report?.metrics;
+
+  const isAthleteProfileComplete = Boolean(athleteProfile.gender && athleteProfile.birthDate);
+
+  const handleSelectModeB = () => {
+    if (!isAthleteProfileComplete) {
+      setShowProfileModal(true);
+      return;
+    }
+
+    setMode('B');
+  };
+
+  const handleSaveAthleteProfile = (profile: AthleteProfile) => {
+    setAthleteProfile(profile);
+    setShowProfileModal(false);
+    setMode('B');
+  };
 
   const handlePlaybackRateChange = (rate: number) => {
     setPlaybackRate(rate);
@@ -1256,6 +1370,12 @@ function AppContent() {
       return;
     }
     if (mode === 'B') {
+      if (!isAthleteProfileComplete) {
+        console.warn('[Mode B Profile] 缺少泳者生理檔案，開啟資料收集彈窗');
+        setShowProfileModal(true);
+        return;
+      }
+
       const isValid = raceEntries.every(entry => 
         entry.event && entry.time && entry.poolLength
       );
@@ -1306,6 +1426,7 @@ function AppContent() {
         targetDescription: mode === 'A' ? targetDescription.trim() || undefined : undefined,
         textInput: mode === 'A' ? textInput : undefined,
         event: mode === 'A' ? eventA : undefined,
+        athleteProfile: mode === 'B' ? athleteProfile : undefined,
         historicalFindings: mode === 'B' && historicalFindings.length > 0 ? historicalFindings : undefined,
         raceEntries: mode === 'B' ? raceEntries.map(e => ({
           event: e.event,
@@ -1333,6 +1454,7 @@ function AppContent() {
             uid: user.uid,
             createdAt: serverTimestamp(),
             event: mode === 'A' ? eventA : raceEntries[0].event,
+            athleteProfile: mode === 'B' ? athleteProfile : null,
             videoUrl: uploadedVideo?.downloadURL || null
           });
           console.log('[前端追蹤] 8. 個人 reports 歷史紀錄寫入完成');
@@ -1535,6 +1657,12 @@ function AppContent() {
           </div>
         </div>
       )}
+      <AthleteProfileModal
+        isOpen={showProfileModal}
+        initialProfile={athleteProfile}
+        onSave={handleSaveAthleteProfile}
+        onCancel={() => setShowProfileModal(false)}
+      />
       {/* Header */}
       <header className="border-b border-ink/10 p-4 md:p-6 flex flex-col sm:flex-row justify-between items-center bg-white/80 backdrop-blur-md sticky top-0 z-50 gap-4 sm:gap-0">
         <div className="flex items-center gap-3 cursor-pointer w-full sm:w-auto" onClick={resetMode} role="button" tabIndex={0}>
@@ -1854,7 +1982,7 @@ function AppContent() {
               </button>
 
               <button 
-                onClick={() => setMode('B')}
+                onClick={handleSelectModeB}
                 className="group bg-white border border-ink/10 p-8 text-left hover:border-accent/70 transition-all rounded-[2rem] shadow-xl shadow-ink/5 hover:shadow-2xl hover:shadow-accent/10 hover:-translate-y-1"
               >
                 <div className="w-12 h-12 sm:w-14 sm:h-14 bg-ink text-white rounded-full flex items-center justify-center mb-6 group-hover:bg-accent transition-colors">
