@@ -895,6 +895,7 @@ function AppContent() {
   const selectedCalendarRecords = selectedCalendarDate ? recordsByDate[selectedCalendarDate] || [] : [];
   const tutorialStep = tutorialSteps[currentStep];
   const isLastTutorialStep = currentStep === tutorialSteps.length - 1;
+  const isAuthenticated = Boolean(user);
 
   const handlePlaybackRateChange = (rate: number) => {
     setPlaybackRate(rate);
@@ -1084,6 +1085,13 @@ function AppContent() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     console.log('[前端追蹤] 檔案選擇事件已觸發');
+    if (!isAuthenticated) {
+      console.warn('[前端阻斷] 未登入，禁止選擇影片檔案');
+      toast.error('請先登入 Google 帳戶，以啟用 AI 影片分析功能。');
+      e.target.value = '';
+      return;
+    }
+
     const file = e.target.files?.[0];
     console.log('[前端追蹤] 目前選擇的檔案狀態:', file || null);
     if (file) {
@@ -1101,6 +1109,12 @@ function AppContent() {
   const handleAnalyze = async () => {
     console.log('[前端追蹤] 1. 按鈕已點擊，準備處理上傳');
     console.log('[前端追蹤] 2. 目前選擇的檔案狀態:', videoFile);
+
+    if (!isAuthenticated) {
+      console.warn('[前端阻斷] 未登入，禁止執行核心分析功能', { mode });
+      toast.error('請先登入 Google 帳戶。');
+      return;
+    }
 
     if (!mode) {
       console.warn('[前端阻斷] 缺少檔案或必要條件，提早結束執行', { mode, videoFile });
@@ -1711,6 +1725,11 @@ function AppContent() {
                   
                   {mode === 'A' ? (
                     <div className="space-y-6">
+                      {!isAuthenticated && (
+                        <div className="rounded-2xl border border-[#2D3047]/15 bg-white p-4 text-center text-sm font-bold text-[#2D3047] shadow-sm">
+                          請先點擊右上角登入 Google 帳戶，以啟用 AI 影片分析功能。
+                        </div>
+                      )}
                       <div className="space-y-2">
                         <label className="text-xs sm:text-[10px] uppercase tracking-widest font-bold opacity-50">游泳項目 (必填)</label>
                         <input 
@@ -1718,15 +1737,24 @@ function AppContent() {
                           placeholder="例如：50公尺自由式"
                           value={eventA}
                           onChange={(e) => setEventA(e.target.value)}
-                          className="w-full bg-white border border-ink/10 p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base"
+                          disabled={!isAuthenticated}
+                          className={cn(
+                            "w-full bg-white border border-ink/10 p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base",
+                            !isAuthenticated && "opacity-50 cursor-not-allowed"
+                          )}
                         />
                       </div>
 
                       <div className="space-y-2">
                         <label className="text-xs sm:text-[10px] uppercase tracking-widest font-bold opacity-50">上傳影片 (推薦)</label>
                         <div 
-                          onClick={() => fileInputRef.current?.click()}
-                          className="border-2 border-dashed border-ink/10 aspect-video flex flex-col items-center justify-center cursor-pointer hover:bg-white hover:border-accent/50 transition-all overflow-hidden relative group rounded-[2rem]"
+                          onClick={() => isAuthenticated && fileInputRef.current?.click()}
+                          className={cn(
+                            "border-2 border-dashed border-ink/10 aspect-video flex flex-col items-center justify-center transition-all overflow-hidden relative group rounded-[2rem]",
+                            isAuthenticated
+                              ? "cursor-pointer hover:bg-white hover:border-accent/50"
+                              : "opacity-50 cursor-not-allowed"
+                          )}
                         >
                           {videoPreview ? (
                             <video src={videoPreview} className="w-full h-full object-cover" controls />
@@ -1741,6 +1769,7 @@ function AppContent() {
                             ref={fileInputRef}
                             onChange={handleFileChange}
                             accept="video/*"
+                            disabled={!isAuthenticated}
                             className="hidden"
                           />
                         </div>
@@ -1757,21 +1786,33 @@ function AppContent() {
                             value={startTime}
                             onChange={(e) => setStartTime(e.target.value)}
                             placeholder="起始時間"
-                            className="w-full rounded-2xl border border-white/15 bg-white/95 p-4 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all"
+                            disabled={!isAuthenticated}
+                            className={cn(
+                              "w-full rounded-2xl border border-white/15 bg-white/95 p-4 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all",
+                              !isAuthenticated && "opacity-50 cursor-not-allowed"
+                            )}
                           />
                           <input
                             type="text"
                             value={endTime}
                             onChange={(e) => setEndTime(e.target.value)}
                             placeholder="結束時間"
-                            className="w-full rounded-2xl border border-white/15 bg-white/95 p-4 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all"
+                            disabled={!isAuthenticated}
+                            className={cn(
+                              "w-full rounded-2xl border border-white/15 bg-white/95 p-4 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all",
+                              !isAuthenticated && "opacity-50 cursor-not-allowed"
+                            )}
                           />
                         </div>
                         <textarea
                           value={targetDescription}
                           onChange={(e) => setTargetDescription(e.target.value)}
                           placeholder="請描述目標學員特徵，例如：第3水道、戴紅色泳帽、黑色泳褲"
-                          className="w-full rounded-2xl border border-white/15 bg-white/95 p-4 h-28 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all resize-none"
+                          disabled={!isAuthenticated}
+                          className={cn(
+                            "w-full rounded-2xl border border-white/15 bg-white/95 p-4 h-28 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all resize-none",
+                            !isAuthenticated && "opacity-50 cursor-not-allowed"
+                          )}
                         />
                       </div>
 
@@ -1781,20 +1822,39 @@ function AppContent() {
                           placeholder="描述您的動作感受或想改進的地方..."
                           value={textInput}
                           onChange={(e) => setTextInput(e.target.value)}
-                          className="w-full bg-white border border-ink/10 p-4 h-32 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all resize-none text-sm sm:text-base"
+                          disabled={!isAuthenticated}
+                          className={cn(
+                            "w-full bg-white border border-ink/10 p-4 h-32 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all resize-none text-sm sm:text-base",
+                            !isAuthenticated && "opacity-50 cursor-not-allowed"
+                          )}
                         />
                       </div>
                     </div>
                   ) : (
                     <div className="space-y-8">
+                      {!isAuthenticated && (
+                        <div className="rounded-2xl border border-[#2D3047]/15 bg-white p-4 text-center text-sm font-bold text-[#2D3047] shadow-sm">
+                          請先登入 Google 帳戶，以載入專屬學員名單並生成訓練菜單。
+                        </div>
+                      )}
                       {raceEntries.map((entry, index) => (
-                        <div key={entry.id} className="p-6 sm:p-8 bg-white border border-ink/5 rounded-[2rem] shadow-sm space-y-6 relative group">
+                        <div
+                          key={entry.id}
+                          className={cn(
+                            "p-6 sm:p-8 bg-white border border-ink/5 rounded-[2rem] shadow-sm space-y-6 relative group",
+                            !isAuthenticated && "opacity-50 cursor-not-allowed"
+                          )}
+                        >
                           <div className="flex justify-between items-center mb-2">
                             <span className="text-xs sm:text-[10px] font-bold text-accent uppercase tracking-widest">Entry #{index + 1}</span>
                             {raceEntries.length > 1 && (
                               <button 
                                 onClick={() => removeRaceEntry(entry.id)}
-                                className="text-xs sm:text-[10px] uppercase tracking-widest font-bold text-red-400 hover:text-red-500 transition-colors"
+                                disabled={!isAuthenticated}
+                                className={cn(
+                                  "text-xs sm:text-[10px] uppercase tracking-widest font-bold text-red-400 hover:text-red-500 transition-colors",
+                                  !isAuthenticated && "cursor-not-allowed hover:text-red-400"
+                                )}
                               >
                                 Remove
                               </button>
@@ -1807,7 +1867,8 @@ function AppContent() {
                               <select 
                                 value={entry.event}
                                 onChange={(e) => updateRaceEntry(entry.id, 'event', e.target.value)}
-                                className="w-full bg-paper/50 border border-ink/10 p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base"
+                                disabled={!isAuthenticated}
+                                className="w-full bg-paper/50 border border-ink/10 p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base disabled:cursor-not-allowed"
                               >
                                 {commonEvents.map(ev => (
                                   <option key={ev} value={ev}>{ev}</option>
@@ -1819,7 +1880,8 @@ function AppContent() {
                                   placeholder="請輸入自定義項目"
                                   value={entry.customEvent}
                                   onChange={(e) => updateRaceEntry(entry.id, 'customEvent', e.target.value)}
-                                  className="w-full bg-paper/50 border border-ink/10 p-4 mt-2 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base"
+                                  disabled={!isAuthenticated}
+                                  className="w-full bg-paper/50 border border-ink/10 p-4 mt-2 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base disabled:cursor-not-allowed"
                                 />
                               )}
                             </div>
@@ -1830,7 +1892,8 @@ function AppContent() {
                                 placeholder="例如：58.5"
                                 value={entry.time}
                                 onChange={(e) => updateRaceEntry(entry.id, 'time', e.target.value)}
-                                className="w-full bg-paper/50 border border-ink/10 p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base"
+                                disabled={!isAuthenticated}
+                                className="w-full bg-paper/50 border border-ink/10 p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base disabled:cursor-not-allowed"
                               />
                             </div>
                           </div>
@@ -1841,7 +1904,8 @@ function AppContent() {
                               <select 
                                 value={entry.poolLength}
                                 onChange={(e) => updateRaceEntry(entry.id, 'poolLength', e.target.value)}
-                                className="w-full bg-paper/50 border border-ink/10 p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base"
+                                disabled={!isAuthenticated}
+                                className="w-full bg-paper/50 border border-ink/10 p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base disabled:cursor-not-allowed"
                               >
                                 <option value="25">25 公尺</option>
                                 <option value="50">50 公尺</option>
@@ -1854,7 +1918,8 @@ function AppContent() {
                                 placeholder="例如：42"
                                 value={entry.strokeCount}
                                 onChange={(e) => updateRaceEntry(entry.id, 'strokeCount', e.target.value)}
-                                className="w-full bg-paper/50 border border-ink/10 p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base"
+                                disabled={!isAuthenticated}
+                                className="w-full bg-paper/50 border border-ink/10 p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base disabled:cursor-not-allowed"
                               />
                             </div>
                           </div>
@@ -1866,7 +1931,8 @@ function AppContent() {
                               placeholder="例如：30.5, 32.1"
                               value={entry.splits}
                               onChange={(e) => updateRaceEntry(entry.id, 'splits', e.target.value)}
-                              className="w-full bg-paper/50 border border-ink/10 p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base"
+                              disabled={!isAuthenticated}
+                              className="w-full bg-paper/50 border border-ink/10 p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base disabled:cursor-not-allowed"
                             />
                           </div>
                         </div>
@@ -1874,7 +1940,13 @@ function AppContent() {
 
                       <button 
                         onClick={addRaceEntry}
-                        className="w-full border-2 border-dashed border-accent/20 bg-accent/5 p-6 rounded-[2rem] flex items-center justify-center gap-2 hover:bg-accent/10 transition-all text-[11px] uppercase tracking-widest font-bold text-accent"
+                        disabled={!isAuthenticated}
+                        className={cn(
+                          "w-full border-2 border-dashed border-accent/20 p-6 rounded-[2rem] flex items-center justify-center gap-2 text-[11px] uppercase tracking-widest font-bold",
+                          isAuthenticated
+                            ? "bg-accent/5 text-accent hover:bg-accent/10 transition-all"
+                            : "bg-gray-400 text-white opacity-50 cursor-not-allowed"
+                        )}
                       >
                         <span className="text-xl">+</span> Add Another Race Entry
                       </button>
@@ -1919,7 +1991,13 @@ function AppContent() {
                   ) : (
                     <button 
                       onClick={handleAnalyze}
-                      className="w-full bg-ink text-white py-6 rounded-full font-bold uppercase tracking-[0.3em] hover:bg-accent transition-all shadow-lg shadow-ink/20 flex items-center justify-center gap-4"
+                      disabled={!isAuthenticated}
+                      className={cn(
+                        "w-full text-white py-6 rounded-full font-bold uppercase tracking-[0.3em] flex items-center justify-center gap-4",
+                        isAuthenticated
+                          ? "bg-[#2D3047] hover:bg-[#93B7BE] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:scale-95 shadow-lg shadow-ink/20"
+                          : "bg-gray-400 opacity-50 cursor-not-allowed"
+                      )}
                     >
                       Start AI Analysis
                     </button>
