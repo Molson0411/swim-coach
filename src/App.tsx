@@ -37,14 +37,16 @@ import { Toaster, toast } from 'sonner';
 import {
   auth,
   db,
+  googleProvider,
   completeGoogleRedirectSignIn,
   getAuthErrorMessage,
+  saveUserProfile,
   signInWithGoogle,
   logout,
   handleFirestoreError,
   OperationType
 } from './firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, User } from 'firebase/auth';
 import { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc, updateDoc, Timestamp } from 'firebase/firestore';
 
 type TrainingCalendarRecord = {
@@ -919,6 +921,21 @@ function AppContent() {
     localStorage.setItem('hasSeenTutorial', 'true');
   };
 
+  const handleGoogleLogin = async () => {
+    setIsSigningIn(true);
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      await saveUserProfile(result.user);
+      setUser(result.user);
+      toast.success('登入成功');
+    } catch (error) {
+      console.error('[驗證錯誤]', error);
+      toast.error(getAuthErrorMessage(error));
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
   useEffect(() => {
     setSelectedCalendarDate(null);
   }, [selectedMonth]);
@@ -928,6 +945,18 @@ function AppContent() {
       setShowTutorial(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (!showTutorial || !user || currentStep !== 0) {
+      return;
+    }
+
+    const autoAdvanceTimer = setTimeout(() => {
+      setCurrentStep(1);
+    }, 700);
+
+    return () => clearTimeout(autoAdvanceTimer);
+  }, [currentStep, showTutorial, user]);
 
   useEffect(() => {
     if (!isAnalyzing) {
@@ -1253,14 +1282,24 @@ function AppContent() {
             )}
 
             {tutorialStep.kind === 'login' && (
-              <button
-                type="button"
-                onClick={handleSignIn}
-                disabled={!isAuthReady || isSigningIn}
-                className="mt-5 w-full rounded-full bg-[#2D3047] px-5 py-3 text-[11px] font-bold uppercase tracking-widest text-white hover:bg-[#93B7BE] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSigningIn ? 'Signing in...' : '使用 Google 帳戶登入'}
-              </button>
+              user ? (
+                <button
+                  type="button"
+                  disabled
+                  className="mt-5 w-full rounded-full bg-green-600 px-5 py-3 text-[11px] font-bold uppercase tracking-widest text-white cursor-default"
+                >
+                  已成功登入：{user.displayName || user.email || 'Google 使用者'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleGoogleLogin}
+                  disabled={!isAuthReady || isSigningIn}
+                  className="mt-5 w-full rounded-full bg-[#2D3047] px-5 py-3 text-[11px] font-bold uppercase tracking-widest text-white hover:bg-[#93B7BE] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSigningIn ? 'Signing in...' : '使用 Google 帳戶登入'}
+                </button>
+              )
             )}
 
             {'items' in tutorialStep && (
