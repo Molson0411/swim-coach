@@ -176,6 +176,52 @@ function formatMonthOption(monthKey: string) {
   });
 }
 
+function timestampToSeconds(timestamp: string) {
+  const match = timestamp.match(/^(\d{2}):([0-5]\d)$/);
+  if (!match) return 0;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function TimeLinkedText({
+  text,
+  onSeek,
+}: {
+  text?: string;
+  onSeek: (timestamp: string) => void;
+}) {
+  if (!text) return null;
+
+  const parts: React.ReactNode[] = [];
+  const timestampPattern = /\[(\d{2}:[0-5]\d)\]/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = timestampPattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+
+    const timestamp = match[1];
+    parts.push(
+      <button
+        key={`${timestamp}-${match.index}`}
+        type="button"
+        onClick={() => onSeek(timestamp)}
+        className="mx-1 inline-flex items-center rounded-full bg-accent px-2.5 py-1 align-baseline text-[10px] font-bold leading-none tracking-widest text-ink shadow-sm hover:bg-ink hover:text-white"
+      >
+        [{timestamp}]
+      </button>
+    );
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return <>{parts}</>;
+}
+
 function buildMonthCalendarDays(baseDate: Date) {
   const year = baseDate.getFullYear();
   const month = baseDate.getMonth();
@@ -723,7 +769,7 @@ function AppContent() {
   const [report, setReport] = useState<AnalysisReport | null>(null);
   const [progress, setProgress] = useState(0);
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
-  const [history, setHistory] = useState<(AnalysisReport & { id: string, createdAt: any, event?: string })[]>([]);
+  const [history, setHistory] = useState<(AnalysisReport & { id: string, createdAt: any, event?: string, videoUrl?: string })[]>([]);
   const [availableMonths, setAvailableMonths] = useState<string[]>([toMonthKey(new Date())]);
   const [selectedMonth, setSelectedMonth] = useState(() => toMonthKey(new Date()));
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
@@ -737,6 +783,8 @@ function AppContent() {
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [targetDescription, setTargetDescription] = useState('');
+  const [currentReportVideoUrl, setCurrentReportVideoUrl] = useState<string | null>(null);
+  const [playbackRate, setPlaybackRate] = useState(1);
 
   // Mode B Inputs
   const [raceEntries, setRaceEntries] = useState([
@@ -753,6 +801,7 @@ function AppContent() {
   ];
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const monthOptions = useMemo(() => {
     const options = new Set([toMonthKey(new Date()), selectedMonth, ...availableMonths]);
     return Array.from(options).sort((a, b) => b.localeCompare(a));
@@ -792,6 +841,26 @@ function AppContent() {
     }, {})
   ), [calendarRecords]);
   const selectedCalendarRecords = selectedCalendarDate ? recordsByDate[selectedCalendarDate] || [] : [];
+
+  const handlePlaybackRateChange = (rate: number) => {
+    setPlaybackRate(rate);
+    if (videoRef.current) {
+      videoRef.current.playbackRate = rate;
+    }
+  };
+
+  const handleSeek = (timestamp: string) => {
+    if (!videoRef.current) {
+      toast.info('目前沒有可連動的分析影片。');
+      return;
+    }
+
+    videoRef.current.currentTime = timestampToSeconds(timestamp);
+    videoRef.current.playbackRate = playbackRate;
+    videoRef.current.play().catch((error) => {
+      console.error('Failed to autoplay analysis video after seek:', error);
+    });
+  };
 
   useEffect(() => {
     setSelectedCalendarDate(null);
@@ -1014,7 +1083,8 @@ function AppContent() {
             ...result,
             uid: user.uid,
             createdAt: serverTimestamp(),
-            event: mode === 'A' ? eventA : (raceEntries[0].event === '其他' ? raceEntries[0].customEvent : raceEntries[0].event)
+            event: mode === 'A' ? eventA : (raceEntries[0].event === '其他' ? raceEntries[0].customEvent : raceEntries[0].event),
+            videoUrl: uploadedVideo?.downloadURL || null
           });
           console.log('[前端追蹤] 8. 個人 reports 歷史紀錄寫入完成');
         } catch (err) {
@@ -1026,6 +1096,7 @@ function AppContent() {
       setProgress(100);
       setTimeout(() => {
         setReport(result);
+        setCurrentReportVideoUrl(uploadedVideo?.downloadURL || null);
         setActiveTab('report');
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }, 500);
@@ -1051,6 +1122,8 @@ function AppContent() {
     setStartTime('');
     setEndTime('');
     setTargetDescription('');
+    setCurrentReportVideoUrl(null);
+    setPlaybackRate(1);
     setRaceEntries([
       { id: Date.now(), event: '50公尺自由式', customEvent: '', time: '', strokeCount: '', poolLength: '50', splits: '' }
     ]);
@@ -1309,6 +1382,7 @@ function AppContent() {
                             onClick={() => {
                               if (!record.sourceReport) return;
                               setReport(record.sourceReport);
+                              setCurrentReportVideoUrl(record.sourceReport.videoUrl || null);
                               setMode(record.sourceReport.mode);
                               setSelectedCalendarDate(null);
                               setActiveTab('report');
@@ -1355,6 +1429,7 @@ function AppContent() {
                       key={item.id}
                       onClick={() => {
                         setReport(item);
+                        setCurrentReportVideoUrl(item.videoUrl || null);
                         setMode(item.mode);
                         setActiveTab('report');
                       }}
@@ -1727,6 +1802,44 @@ function AppContent() {
                   {/* Mode A Specific Content */}
                   {report.mode === 'A' && (
                     <div className="space-y-12">
+                      {currentReportVideoUrl && (
+                        <section className="rounded-[2rem] border border-ink/10 bg-ink p-4 sm:p-6 text-white shadow-xl shadow-ink/10">
+                          <div className="overflow-hidden rounded-[1.5rem] border border-white/10 bg-black">
+                            <video
+                              ref={videoRef}
+                              src={currentReportVideoUrl}
+                              controls
+                              preload="metadata"
+                              className="aspect-video w-full bg-black object-contain"
+                              onLoadedMetadata={() => handlePlaybackRateChange(playbackRate)}
+                            />
+                          </div>
+                          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-accent">Playback Controls</p>
+                              <h3 className="font-serif text-lg font-bold italic tracking-tight">專業播放控制面板</h3>
+                            </div>
+                            <div className="flex gap-2">
+                              {[1, 0.5, 0.25].map((rate) => (
+                                <button
+                                  key={rate}
+                                  type="button"
+                                  onClick={() => handlePlaybackRateChange(rate)}
+                                  className={cn(
+                                    "rounded-full px-4 py-2 text-[10px] font-bold uppercase tracking-widest",
+                                    playbackRate === rate
+                                      ? "bg-accent text-ink"
+                                      : "bg-white/10 text-white hover:bg-accent hover:text-ink"
+                                  )}
+                                >
+                                  {rate}x
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </section>
+                      )}
+
                       <section className="relative">
                         <Quote className="absolute -top-6 -left-6 w-12 h-12 opacity-5 text-accent hidden sm:block" />
                         <h3 className="text-sm sm:text-xs uppercase tracking-[0.2em] font-bold mb-6 sm:mb-8 flex items-center gap-2 text-accent">
@@ -1736,10 +1849,10 @@ function AppContent() {
                           {report.findings?.map((finding, idx) => (
                             <div key={idx} className="pl-4 sm:pl-6 border-l-4 border-accent/20">
                               <p className="text-lg sm:text-2xl font-serif italic leading-relaxed mb-2 text-ink">
-                                "{finding.metaphor}"
+                                {"\""}<TimeLinkedText text={finding.metaphor} onSeek={handleSeek} />{"\""}
                               </p>
                               <p className="text-[11px] sm:text-sm text-ink/60 font-medium uppercase tracking-wider leading-relaxed">
-                                {finding.analysis}
+                                <TimeLinkedText text={finding.analysis} onSeek={handleSeek} />
                               </p>
                             </div>
                           ))}
@@ -1756,13 +1869,15 @@ function AppContent() {
                               <div className="bg-ink text-white p-5 sm:p-8 mb-3 rounded-3xl group-hover:bg-accent transition-colors">
                                 <h4 className="text-[9px] sm:text-[10px] uppercase tracking-[0.2em] font-bold mb-2 opacity-50">一秒懂口訣</h4>
                                 <p className="text-base sm:text-xl font-bold tracking-normal italic font-serif">
-                                  {suggestion.mnemonic}
+                                  <TimeLinkedText text={suggestion.mnemonic} onSeek={handleSeek} />
                                 </p>
                               </div>
                               <div className="bg-paper/50 border border-ink/5 p-5 sm:p-8 flex-grow rounded-3xl">
-                                <h4 className="text-[9px] sm:text-[10px] uppercase tracking-[0.2em] font-bold mb-2 text-accent leading-tight">核心練習：{suggestion.drill.name}</h4>
+                                <h4 className="text-[9px] sm:text-[10px] uppercase tracking-[0.2em] font-bold mb-2 text-accent leading-tight">
+                                  核心練習：<TimeLinkedText text={suggestion.drill.name} onSeek={handleSeek} />
+                                </h4>
                                 <p className="text-xs sm:text-sm leading-relaxed text-ink/70">
-                                  {suggestion.drill.purpose}
+                                  <TimeLinkedText text={suggestion.drill.purpose} onSeek={handleSeek} />
                                 </p>
                               </div>
                             </div>
@@ -1794,7 +1909,9 @@ function AppContent() {
                         <h3 className="text-sm sm:text-xs uppercase tracking-[0.2em] font-bold mb-4 flex items-center gap-2 text-accent">
                           <FileText className="w-4 h-4" /> Efficiency Analysis
                         </h3>
-                        <p className="text-lg sm:text-2xl leading-relaxed text-ink/80 font-serif italic">"{report.metrics.analysis}"</p>
+                        <p className="text-lg sm:text-2xl leading-relaxed text-ink/80 font-serif italic">
+                          {"\""}<TimeLinkedText text={report.metrics.analysis} onSeek={handleSeek} />{"\""}
+                        </p>
                       </section>
 
                       {report.trainingPlan && (
@@ -1808,21 +1925,21 @@ function AppContent() {
                             <div className="p-5 sm:p-8 space-y-5 bg-white">
                               <div>
                                 <h4 className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-accent mb-1.5">Warmup (WU)</h4>
-                                <p className="text-xs sm:text-sm leading-relaxed">{report.trainingPlan.warmup}</p>
+                                <p className="text-xs sm:text-sm leading-relaxed"><TimeLinkedText text={report.trainingPlan.warmup} onSeek={handleSeek} /></p>
                               </div>
                               <div>
                                 <h4 className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-accent mb-1.5">Drills</h4>
-                                <p className="text-xs sm:text-sm leading-relaxed">{report.trainingPlan.drills}</p>
+                                <p className="text-xs sm:text-sm leading-relaxed"><TimeLinkedText text={report.trainingPlan.drills} onSeek={handleSeek} /></p>
                               </div>
                             </div>
                             <div className="p-5 sm:p-8 space-y-5 bg-paper/50">
                               <div>
                                 <h4 className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-accent mb-1.5">Main Set (MS)</h4>
-                                <p className="text-xs sm:text-sm font-bold leading-relaxed">{report.trainingPlan.mainSet}</p>
+                                <p className="text-xs sm:text-sm font-bold leading-relaxed"><TimeLinkedText text={report.trainingPlan.mainSet} onSeek={handleSeek} /></p>
                               </div>
                               <div>
                                 <h4 className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-accent mb-1.5">Cool Down (CD)</h4>
-                                <p className="text-xs sm:text-sm leading-relaxed">{report.trainingPlan.coolDown}</p>
+                                <p className="text-xs sm:text-sm leading-relaxed"><TimeLinkedText text={report.trainingPlan.coolDown} onSeek={handleSeek} /></p>
                               </div>
                             </div>
                           </div>
@@ -1835,7 +1952,9 @@ function AppContent() {
                   <section className="border-t border-ink/10 pt-8 sm:pt-12 mt-8 sm:mt-12">
                     <h3 className="text-[10px] sm:text-xs uppercase tracking-[0.2em] font-bold mb-5 sm:mb-8 text-accent">Coach's Growth Advice</h3>
                     <div className="bg-accent/5 p-6 sm:p-10 rounded-[2rem] sm:rounded-[2.5rem] border border-accent/10">
-                      <p className="text-base sm:text-xl leading-relaxed italic font-serif text-ink/80">{report.growthAdvice}</p>
+                      <p className="text-base sm:text-xl leading-relaxed italic font-serif text-ink/80">
+                        <TimeLinkedText text={report.growthAdvice} onSeek={handleSeek} />
+                      </p>
                     </div>
                   </section>
 
@@ -1844,7 +1963,11 @@ function AppContent() {
                     <div className="bg-yellow-100 border border-yellow-400 p-4 text-yellow-800 text-xs mt-8">
                       <p className="font-bold mb-1 uppercase tracking-widest">⚠️ Missing Data for Precise Analysis:</p>
                       <ul className="list-disc list-inside">
-                        {report.missingData.map((item, i) => <li key={i}>{item}</li>)}
+                        {report.missingData.map((item, i) => (
+                          <li key={i}>
+                            <TimeLinkedText text={item} onSeek={handleSeek} />
+                          </li>
+                        ))}
                       </ul>
                     </div>
                   )}

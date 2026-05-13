@@ -697,3 +697,14 @@ npm.cmd run lint
 - Updated `api/analyze.ts` and local `server/gemini.ts` to accept the optional tracking fields without breaking older clients.
 - Added dynamic Gemini system instruction injection after RAG coach history and before the base system instruction, forcing analysis to focus only on the requested time segment and described swimmer.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-13 AI Timeline Tags and Playback Controls
+
+- Added a strict Gemini system instruction requiring video-specific observations to include timestamps in `[MM:SS]` format.
+- Mirrored the timestamp instruction in both `api/analyze.ts` and local `server/gemini.ts`.
+- Added a Mode A report video player driven by `videoRef`, using the uploaded Firebase Storage `videoUrl`.
+- Added playback speed controls for `1x`, `0.5x`, and `0.25x` with the dark brand color and light hover accent.
+- Added a regex-based frontend parser that turns `[MM:SS]` text inside report fields into clickable time-tag buttons.
+- Added `handleSeek` so clicking a time tag seeks the report video to the target second and starts playback automatically.
+- Personal `reports` writes now include `videoUrl` so future history entries can reopen with synced playback.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

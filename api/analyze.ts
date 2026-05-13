@@ -122,6 +122,7 @@ const SYSTEM_INSTRUCTION = [
   "For mode A, analyze the supplied swimming video if a Gemini File URI is provided.",
   "For mode B, analyze race or training metrics.",
   "If the available data is insufficient, list the missing fields in missingData and avoid pretending you saw details that are not visible.",
+  "【強制格式要求】：當你指出影片中的特定動作瑕疵或完美示範時，請「務必」標註精確的時間點。時間格式必須嚴格遵守 [MM:SS] 的括號格式。範例：『在 [00:12] 時，你的右手入水角度過大...』。",
 ].join("\n");
 
 const OLYMPIC_TECHNIQUE_PROMPT = `你是一位專精於競技游泳與運動生物力學的「奧運級技術分析教練」。
