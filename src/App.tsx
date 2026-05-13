@@ -386,7 +386,7 @@ function mapAnalysisReportDoc(reviewDoc: { id: string; data: () => any }, index:
     createdAtMs: createdAtDate?.getTime() || 0,
     stroke: data.strokeType || aiReport?.stroke || 'Unknown Stroke',
     event: aiReport?.mode === 'B' ? 'Race Data Analysis' : 'Technique Analysis',
-    conclusion: aiReport?.impression || aiReport?.metrics?.analysis || aiReport?.growthAdvice || 'No AI conclusion available.',
+    conclusion: aiReport?.impression || aiReport?.performanceMetrics?.analysis || aiReport?.metrics?.analysis || aiReport?.growthAdvice || 'No AI conclusion available.',
     status,
     visibilityStatus,
     adminFeedback: data.adminFeedback || undefined,
@@ -934,7 +934,7 @@ function AppContent() {
           mode: item.mode,
           stroke: item.stroke,
           event: item.event,
-          impression: item.impression || item.metrics?.analysis || item.growthAdvice,
+          impression: item.impression || item.performanceMetrics?.analysis || item.metrics?.analysis || item.growthAdvice,
           sourceReport: item,
         } satisfies TrainingCalendarRecord;
       })
@@ -953,6 +953,7 @@ function AppContent() {
   const tutorialStep = tutorialSteps[currentStep];
   const isLastTutorialStep = currentStep === tutorialSteps.length - 1;
   const isAuthenticated = Boolean(user);
+  const modeBMetrics = report?.performanceMetrics || report?.metrics;
 
   const handlePlaybackRateChange = (rate: number) => {
     setPlaybackRate(rate);
@@ -1236,6 +1237,13 @@ function AppContent() {
           splits: lapValuesToNumbers(e.splits)
         })) : undefined
       });
+      const normalizedResult: AnalysisReport = result.mode === 'B'
+        ? {
+            ...result,
+            performanceMetrics: result.performanceMetrics || result.metrics,
+            metrics: result.metrics || result.performanceMetrics,
+          }
+        : result;
       console.log('[前端追蹤] 6. /api/analyze 已回傳結果:', result);
 
       // Save to Firestore if logged in
@@ -1243,7 +1251,7 @@ function AppContent() {
         try {
           console.log('[前端追蹤] 7. 準備寫入個人 reports 歷史紀錄');
           await addDoc(collection(db, 'reports'), {
-            ...result,
+            ...normalizedResult,
             uid: user.uid,
             createdAt: serverTimestamp(),
             event: mode === 'A' ? eventA : raceEntries[0].event,
@@ -1258,7 +1266,7 @@ function AppContent() {
 
       setProgress(100);
       setTimeout(() => {
-        setReport(result);
+        setReport(normalizedResult);
         setCurrentReportVideoUrl(uploadedVideo?.downloadURL || null);
         setActiveTab('report');
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2252,17 +2260,19 @@ function AppContent() {
                   )}
 
                   {/* Mode B Specific Content */}
-                  {report.mode === 'B' && report.metrics && (
+                  {report.mode === 'B' && modeBMetrics && (
                     <div className="space-y-12">
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6">
                         {[
-                          { label: 'SWOLF', value: report.metrics.swolf, icon: Activity },
-                          { label: 'DPS (m)', value: report.metrics.dps, icon: Target },
-                          { label: 'CSS', value: report.metrics.css, icon: Timer },
-                          { label: 'FINA Points', value: report.metrics.finaPoints, icon: Trophy },
+                          { label: 'SWOLF', value: modeBMetrics.swolf, icon: Activity },
+                          { label: 'DPS (m)', value: modeBMetrics.dps, icon: Target },
+                          { label: 'CSS', value: modeBMetrics.css, icon: Timer },
+                          { label: 'FINA Points', value: modeBMetrics.finaPoints, icon: Trophy },
                         ].map((stat) => (
-                          <div key={stat.label} className="bg-white border border-ink/5 p-4 sm:p-8 rounded-3xl flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md transition-shadow">
-                            <stat.icon className="w-3.5 h-3.5 sm:w-5 sm:h-5 mb-2 text-accent opacity-50" />
+                          <div key={stat.label} className="bg-white border border-ink/10 p-4 sm:p-6 rounded-[2rem] flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md transition-shadow">
+                            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-2xl bg-[#2D3047] text-white">
+                              <stat.icon className="w-4 h-4 sm:w-5 sm:h-5" />
+                            </div>
                             <p className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold opacity-50 mb-0.5">{stat.label}</p>
                             <p className="text-lg sm:text-3xl font-bold text-ink">{stat.value || '--'}</p>
                           </div>
@@ -2274,37 +2284,43 @@ function AppContent() {
                           <FileText className="w-4 h-4" /> Efficiency Analysis
                         </h3>
                         <p className="text-lg sm:text-2xl leading-relaxed text-ink/80 font-serif italic">
-                          {"\""}<TimestampText text={report.metrics.analysis} onSeek={handleSeek} />{"\""}
+                          {"\""}<TimestampText text={modeBMetrics.analysis} onSeek={handleSeek} />{"\""}
                         </p>
                       </section>
 
                       {report.trainingPlan && (
-                        <section className="border border-ink/10 rounded-[2rem] overflow-hidden">
-                          <div className="bg-ink text-white p-5">
-                            <h3 className="text-[10px] sm:text-xs uppercase tracking-[0.2em] font-bold flex items-center gap-2">
-                              <Dumbbell className="w-4 h-4 text-accent" /> Scientific Training Plan
-                            </h3>
-                          </div>
-                          <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-ink/10">
-                            <div className="p-5 sm:p-8 space-y-5 bg-white">
-                              <div>
-                                <h4 className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-accent mb-1.5">Warmup (WU)</h4>
-                                <p className="text-xs sm:text-sm leading-relaxed"><TimestampText text={report.trainingPlan.warmup} onSeek={handleSeek} /></p>
+                        <section className="space-y-5">
+                          <h3 className="text-[10px] sm:text-xs uppercase tracking-[0.2em] font-bold flex items-center gap-2 text-[#2D3047]">
+                            <Dumbbell className="w-4 h-4 text-[#93B7BE]" /> Scientific Training Plan
+                          </h3>
+                          <div className="grid md:grid-cols-2 gap-4">
+                            <div className="bg-white border border-ink/10 p-6 rounded-[2rem] shadow-sm">
+                              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-2xl bg-[#2D3047] text-white">
+                                <Waves className="w-5 h-5" />
                               </div>
-                              <div>
-                                <h4 className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-accent mb-1.5">Drills</h4>
-                                <p className="text-xs sm:text-sm leading-relaxed"><TimestampText text={report.trainingPlan.drills} onSeek={handleSeek} /></p>
-                              </div>
+                              <h4 className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-accent mb-2">Warmup (暖身)</h4>
+                              <p className="text-xs sm:text-sm leading-relaxed text-ink/75"><TimestampText text={report.trainingPlan.warmup} onSeek={handleSeek} /></p>
                             </div>
-                            <div className="p-5 sm:p-8 space-y-5 bg-paper/50">
-                              <div>
-                                <h4 className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-accent mb-1.5">Main Set (MS)</h4>
-                                <p className="text-xs sm:text-sm font-bold leading-relaxed"><TimestampText text={report.trainingPlan.mainSet} onSeek={handleSeek} /></p>
+                            <div className="bg-white border border-ink/10 p-6 rounded-[2rem] shadow-sm">
+                              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-2xl bg-[#2D3047] text-white">
+                                <Target className="w-5 h-5" />
                               </div>
-                              <div>
-                                <h4 className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-accent mb-1.5">Cool Down (CD)</h4>
-                                <p className="text-xs sm:text-sm leading-relaxed"><TimestampText text={report.trainingPlan.coolDown} onSeek={handleSeek} /></p>
+                              <h4 className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-accent mb-2">Drills (技術練習)</h4>
+                              <p className="text-xs sm:text-sm leading-relaxed text-ink/75"><TimestampText text={report.trainingPlan.drills} onSeek={handleSeek} /></p>
+                            </div>
+                            <div className="md:col-span-2 bg-[#2D3047] border border-ink/10 p-6 rounded-[2rem] shadow-xl shadow-ink/10 text-white">
+                              <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-[#93B7BE] text-[#2D3047]">
+                                <Dumbbell className="w-5 h-5" />
                               </div>
+                              <h4 className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-[#93B7BE] mb-2">Main Set (主課表)</h4>
+                              <p className="text-sm sm:text-base font-bold leading-relaxed"><TimestampText text={report.trainingPlan.mainSet} onSeek={handleSeek} /></p>
+                            </div>
+                            <div className="bg-white border border-ink/10 p-6 rounded-[2rem] shadow-sm md:col-span-2">
+                              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-2xl bg-[#2D3047] text-white">
+                                <RotateCcw className="w-5 h-5" />
+                              </div>
+                              <h4 className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-accent mb-2">Cool Down (緩和)</h4>
+                              <p className="text-xs sm:text-sm leading-relaxed text-ink/75"><TimestampText text={report.trainingPlan.coolDown} onSeek={handleSeek} /></p>
                             </div>
                           </div>
                         </section>

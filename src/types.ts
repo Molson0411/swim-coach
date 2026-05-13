@@ -25,6 +25,13 @@ export interface AnalysisReport {
     };
   }[];
   // Mode B Fields
+  performanceMetrics?: {
+    swolf: number;
+    dps: number;
+    css?: string;
+    finaPoints?: number;
+    analysis: string;
+  };
   metrics?: {
     swolf: number;
     dps: number;

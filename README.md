@@ -726,3 +726,12 @@ npm.cmd run lint
 - Payload formatting now sends `splits` and `strokeCounts` as `number[]`, with empty lap values converted to `0`.
 - Updated frontend service and backend/local Gemini input formatting to read per-lap arrays.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-13 Mode B Personal Science Coach Report
+
+- Strengthened Mode B Gemini prompts in `api/analyze.ts` and `server/gemini.ts` so race entries include per-lap `splits` and `strokeCounts`, and the AI must act as a senior swim coach.
+- Required Mode B JSON to include `performanceMetrics` (`swolf`, `dps`, `css`, `finaPoints`, `analysis`) and `trainingPlan` (`warmup`, `drills`, `mainSet`, `coolDown`), while mirroring metrics into the legacy `metrics` field for compatibility.
+- Normalized Mode B API results before saving, so personal Firestore `reports` documents keep both the new `performanceMetrics` data and legacy `metrics` data.
+- Updated the report page to render Mode B SWOLF, DPS, CSS, and FINA Points in a professional data row, followed by a scientific training-plan grid with Warmup, Drills, highlighted Main Set, and Cool Down cards.
+- Updated admin/history summaries to prefer `performanceMetrics.analysis` when available.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

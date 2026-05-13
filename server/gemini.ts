@@ -67,6 +67,7 @@ function buildPrompt(mode: AnalysisMode, inputs: AnalyzeInputs) {
   "findings": [{"metaphor": "好記的比喻", "analysis": "技術分析"}],
   "suggestions": [{"mnemonic": "口訣", "drill": {"name": "訓練名稱", "purpose": "訓練目的"}}],
   "metrics": {"swolf": 0, "dps": 0, "css": "CSS 估算", "finaPoints": 0, "analysis": "數據解讀"},
+  "performanceMetrics": {"swolf": 0, "dps": 0, "css": "CSS 估算", "finaPoints": 0, "analysis": "數據解讀"},
   "trainingPlan": {"warmup": "熱身", "drills": "技術訓練", "mainSet": "主課表", "coolDown": "緩和"},
   "growthAdvice": "下一步成長建議",
   "missingData": []
@@ -84,6 +85,11 @@ function buildPrompt(mode: AnalysisMode, inputs: AnalyzeInputs) {
   return `${schema}
 
 輸入模式 B：數據與訓練分析
+Mode B strict output rules:
+- Act as a senior swimming coach and sports data analyst.
+- Use every raceEntries item, including splits and strokeCounts numeric arrays.
+- Calculate or estimate SWOLF, DPS, CSS, and FINA points from lap data.
+- Return performanceMetrics and trainingPlan. Keep metrics identical to performanceMetrics for backward compatibility.
 ${inputs.raceEntries?.map((entry, index) => (
   `項目 ${index + 1}：${entry.event}，時間：${entry.time}，每趟划手數：${formatNumberArray(entry.strokeCounts)}，泳池長度：${entry.poolLength}，每趟分段：${formatNumberArray(entry.splits)}`
 )).join("\n") || "未提供數據"}`;
@@ -215,11 +221,28 @@ export async function analyzeWithGemini(
       throw new Error("Gemini API returned an empty response.");
     }
 
-    return JSON.parse(stripCodeFence(text)) as AnalysisReport;
+    return normalizeAnalysisReport(JSON.parse(stripCodeFence(text)) as AnalysisReport);
   } catch (error) {
     console.error("[Gemini API] local analyzeWithGemini failed:", error);
     throw error;
   }
+}
+
+function normalizeAnalysisReport(report: AnalysisReport): AnalysisReport {
+  if (report.mode !== "B") {
+    return report;
+  }
+
+  const metrics = report.performanceMetrics || report.metrics;
+  if (!metrics) {
+    return report;
+  }
+
+  return {
+    ...report,
+    performanceMetrics: metrics,
+    metrics: report.metrics || metrics,
+  };
 }
 
 async function buildSystemInstruction(strokeType: string | null, targetTrackingInstruction: string | null = null) {
