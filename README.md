@@ -744,3 +744,12 @@ npm.cmd run lint
 - Added report UI rendering that removes `(Ref: Mode A)` from visible drill text and replaces it with the badge `動作診斷連動建議`.
 - Preserved the raw `(Ref: Mode A)` marker in saved `trainingPlan.drills` data so Firestore history keeps the linkage metadata.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-13 Mode B Fluid Dynamics Prompt Upgrade
+
+- Added a dedicated `MODE_B_SPORTS_SCIENCE_PROMPT` to both `api/analyze.ts` and `server/gemini.ts`.
+- Injected the full fluid-dynamics baseline covering total drag, pressure drag, wave drag, frontal projection area, DPS, stroke rate, and active drag.
+- Added the advanced drill mapping matrix for freestyle, backstroke, breaststroke, and butterfly, requiring `(Ref: Mode A)` markers when historical Mode A flaws drive the prescription.
+- Clarified that the system's `efficiencyAnalysis` should be written into `performanceMetrics.analysis` to preserve the existing JSON schema.
+- Confirmed `historicalFindings` remains formatted and passed directly into the Mode B Gemini prompt.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

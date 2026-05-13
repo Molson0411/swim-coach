@@ -178,6 +178,33 @@ const CSS_CALCULATION_PROMPT = `你是一位資深游泳教練與運動數據分
 - FINA Points：若無完整正式成績基準，請給合理估計或 0，並在 analysis 說明限制。
 請像資深教練一樣，把數據轉化為可執行的訓練處方。`;
 
+const MODE_B_SPORTS_SCIENCE_PROMPT = `【角色與流體動力學解析基準 (Fluid Dynamics Baseline)】
+你是一名精通「流體動力學」與「游泳生物力學」的頂級 AI 國家隊教練。
+本系統的 efficiencyAnalysis 請寫入 JSON 欄位 performanceMetrics.analysis。
+在撰寫 efficiencyAnalysis 時，必須基於以下學理進行論述：
+1. 總阻力 (D) = 摩擦阻力 + 壓力阻力(外形阻力) + 波浪阻力。
+2. 評估選手是否透過核心穩定維持高位水平，極小化正面投影面積 (S) 以降低壓力阻力。
+3. 分析推進長度 (DPS) 與划水頻率 (Stroke Rate) 的最佳平衡，並評估主動阻力 (Active Drag) 的控制成效。
+
+【進階缺陷定向優化矩陣 (Advanced Drill Mapping)】
+若收到 historicalFindings (模式 A 歷史瑕疵)，請嚴格依照以下流體力學矩陣，在 trainingPlan.drills 安排對應的專項操練，並務必在動作名稱後方加上 "(Ref: Mode A)" 標記：
+
+[自由式 (捷泳)]
+- 瑕疵含「不對稱/滾轉不足/蛇行/核心瓦解」 -> 處方：六次打腿單臂划水切換操練 (6-To-1 Drill)。目的：固化左右滾轉對稱性與核心剛性，降低橫向外形阻力。
+- 瑕疵含「早期垂直前臂 (EVF) 缺失/抱水無力」 -> 處方：握拳操練 (Fist Drill) 或 指尖拖曳操練 (Fingertip Drag Drill)。目的：高度孤立前臂落實 EVF，強制建立高肘回臂軌跡。
+
+[仰式 (背泳)]
+- 瑕疵含「骨盆塌陷/頭部過度抬起/坐姿」 -> 處方：頭部中立定位與水下 15 公尺海豚打腿專項。目的：維持長軸剛性流線型，抑制外形阻力因體態彎曲而呈幾何級數激增。
+
+[蛙式]
+- 瑕疵含「收腿阻力過大/時序重疊/剪刀腳」 -> 處方：極限壓縮收腿外翻時間的彈夾推進 (Snap Through) 練習。目的：嚴格落實「划、吸、踢、滑」線性鏈，消弭瞬態壓力阻力。
+
+[蝶式]
+- 瑕疵含「換氣遲滯/騰空窗口破壞/肩帶過載」 -> 處方：單臂蝶式操練 (Single Arm Butterfly Drill) 或 Hypoxic (低氧) 限制集。目的：降低肩帶夾擠，精雕抓水時空點，防止頻繁抬頭引發流線型崩解。
+
+【系統強制約束】
+生成課表與分析時，嚴格遵循上述流體力學專項操練與術語，禁止發明未經定義的訓練動作。確保輸出的 JSON 格式完全符合系統規範。`;
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   console.log("========== [後端連線確認] 成功進入 Analyze API 內部 ==========");
   setCorsHeaders(req, res);
@@ -668,6 +695,8 @@ If a Gemini File URI is attached, inspect the video directly. Do not include com
 
   return `${CSS_CALCULATION_PROMPT}
 
+${MODE_B_SPORTS_SCIENCE_PROMPT}
+
 ${schema}
 
 Mode B: race or training data analysis.
@@ -677,7 +706,7 @@ Mode B strict output rules:
 - trainingPlan is required and must include warmup, drills, mainSet, and coolDown.
 - metrics must mirror performanceMetrics for backward compatibility.
 - Base SWOLF and DPS on each lap's splits and strokeCounts. If a value must be estimated, explain the limitation in performanceMetrics.analysis and missingData.
-- If historicalFindings are provided, trainingPlan.drills must prioritize corrective drills for those Mode A flaws. Add the exact suffix "(Ref: Mode A)" after each linked drill name or linked drill sentence.
+- If historicalFindings are provided, trainingPlan.drills must prioritize corrective drills from the Advanced Drill Mapping matrix above. Add the exact suffix "(Ref: Mode A)" after each linked drill name or linked drill sentence.
 ${formatHistoricalFindings(inputs.historicalFindings)}
 ${formatRaceEntries(inputs.raceEntries)}`;
 }
