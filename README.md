@@ -761,3 +761,11 @@ npm.cmd run lint
 - Instructed Mode B analysis to compare athlete data against the standard movement models when producing `performanceMetrics.analysis` and `growthAdvice`.
 - Preserved the existing JSON output schema, fluid-dynamics prompt, advanced drill mapping, and `historicalFindings` linkage rules.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-13 Gemini JSON Sanitization
+
+- Replaced direct Gemini `JSON.parse(stripCodeFence(text))` calls with `parseGeminiJsonResponse(text)` in both `api/analyze.ts` and `server/gemini.ts`.
+- Sanitization now removes Markdown fences, extracts the first `{` through the last `}`, and parses only that JSON block.
+- Parse failures now log the raw Gemini response and sanitized response before throwing a clear frontend-facing error.
+- This fixes failures such as `Unexpected non-whitespace character after JSON` when Gemini returns extra prose around the JSON object.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

@@ -319,7 +319,7 @@ export async function analyzeWithGemini(
       throw new Error("Gemini API returned an empty response.");
     }
 
-    return normalizeAnalysisReport(JSON.parse(stripCodeFence(text)) as AnalysisReport);
+    return normalizeAnalysisReport(parseGeminiJsonResponse(text));
   } catch (error) {
     console.error("[Gemini API] local analyzeWithGemini failed:", error);
     throw error;
@@ -533,8 +533,32 @@ async function waitForGeminiFileActive(fileName: string) {
 
 function stripCodeFence(value: string) {
   return value
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/\s*```$/i, "")
+    .replace(/```json/gi, "")
+    .replace(/```/g, "")
     .trim();
+}
+
+function extractJsonBlock(value: string) {
+  let cleanText = stripCodeFence(value);
+  const startIndex = cleanText.indexOf("{");
+  const endIndex = cleanText.lastIndexOf("}");
+
+  if (startIndex !== -1 && endIndex !== -1 && endIndex >= startIndex) {
+    cleanText = cleanText.substring(startIndex, endIndex + 1);
+  }
+
+  return cleanText;
+}
+
+function parseGeminiJsonResponse(text: string): AnalysisReport {
+  const cleanText = extractJsonBlock(text);
+
+  try {
+    return JSON.parse(cleanText) as AnalysisReport;
+  } catch (error) {
+    console.error("[Gemini JSON Parse Error] Failed to parse sanitized response:", error);
+    console.error("[Gemini JSON Parse Error] Raw Gemini response text:", text);
+    console.error("[Gemini JSON Parse Error] Sanitized Gemini response text:", cleanText);
+    throw new Error("Gemini returned invalid JSON after sanitization. Please retry or inspect server logs for the raw response.");
+  }
 }
