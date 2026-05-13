@@ -157,7 +157,7 @@ function calculateLapCount(event: string, poolLength: string) {
   const distance = extractDistanceFromEvent(event);
   const pool = Number(poolLength);
   if (!distance || !pool) return 0;
-  return Math.max(1, Math.floor(distance / pool));
+  return Math.max(1, Math.ceil(distance / pool));
 }
 
 function resizeLapValues(length: number, current: string[] = []) {
@@ -174,8 +174,8 @@ function createRaceEntry(): RaceEntryState {
     event,
     time: '',
     poolLength,
-    splits: resizeLapValues(lapCount),
-    strokeCounts: resizeLapValues(lapCount),
+    splits: [],
+    strokeCounts: [],
   };
 }
 
@@ -1321,17 +1321,12 @@ function AppContent() {
     }));
   };
 
-  const updateLapValue = (
-    id: number,
-    field: 'splits' | 'strokeCounts',
-    lapIndex: number,
-    value: string
-  ) => {
-    setRaceEntries(raceEntries.map((entry) => {
-      if (entry.id !== id) return entry;
-      const nextValues = [...entry[field]];
-      nextValues[lapIndex] = value;
-      return { ...entry, [field]: nextValues };
+  const handleArrayChange = (entryId: number, field: 'splits' | 'strokeCounts', index: number, value: string) => {
+    setRaceEntries(entries => entries.map(entry => {
+      if (entry.id !== entryId) return entry;
+      const newArray = [...(entry[field] || [])];
+      newArray[index] = value;
+      return { ...entry, [field]: newArray };
     }));
   };
 
@@ -1929,7 +1924,10 @@ function AppContent() {
                           )}
                         >
                           {(() => {
-                            const totalLaps = calculateLapCount(entry.event, entry.poolLength);
+                            const distanceMatch = entry.event.match(/\d+/);
+                            const distance = distanceMatch ? parseInt(distanceMatch[0], 10) : 0;
+                            const poolLengthNum = parseInt(entry.poolLength || '50', 10);
+                            const laps = distance > 0 ? Math.ceil(distance / poolLengthNum) : 1;
 
                             return (
                               <>
@@ -1991,39 +1989,43 @@ function AppContent() {
                             </div>
                             <div className="rounded-2xl border border-accent/15 bg-accent/5 p-4">
                               <p className="text-[10px] uppercase tracking-widest font-bold text-accent">Total Laps</p>
-                              <p className="mt-1 text-2xl font-bold text-ink">{totalLaps} 趟</p>
+                              <p className="mt-1 text-2xl font-bold text-ink">{laps} 趟</p>
                             </div>
                           </div>
 
-                          <div className="space-y-3">
-                            <div>
-                              <p className="text-xs sm:text-[10px] uppercase tracking-widest font-bold opacity-50">動態趟數輸入</p>
-                              <p className="mt-1 text-xs text-ink/45">依據項目距離與泳池長度自動產生每趟分段秒數與划手數。</p>
+                          <div className="md:col-span-2 space-y-4 pt-4 border-t border-ink/10">
+                            <div className="flex items-center gap-2 mb-2">
+                              <h4 className="text-xs sm:text-[10px] uppercase tracking-widest font-bold opacity-50">各趟分段數據 (自動展開)</h4>
+                              <span className="text-[10px] font-bold text-accent bg-accent/10 px-2 py-0.5 rounded-full">共 {laps} 趟</span>
                             </div>
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                              {Array.from({ length: totalLaps }, (_lap, lapIndex) => (
-                                <div key={`${entry.id}-lap-${lapIndex}`} className="rounded-2xl border border-ink/10 bg-white p-3 space-y-3">
-                                  <p className="text-center text-[10px] font-bold uppercase tracking-widest text-ink/50">
-                                    Lap {lapIndex + 1}
+                              {Array.from({ length: laps }).map((_, index) => (
+                                <div key={index} className="bg-paper/50 border border-ink/10 p-4 rounded-2xl space-y-3">
+                                  <p className="text-[10px] font-bold text-accent uppercase tracking-widest border-b border-ink/10 pb-2">
+                                    第 {index + 1} 趟 ({poolLengthNum}m)
                                   </p>
-                                  <input
-                                    type="text"
-                                    inputMode="decimal"
-                                    placeholder="分段秒數"
-                                    value={entry.splits[lapIndex] || ''}
-                                    onChange={(e) => updateLapValue(entry.id, 'splits', lapIndex, e.target.value)}
-                                    disabled={!isAuthenticated}
-                                    className="w-full bg-paper/50 border border-ink/10 p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent text-sm text-center disabled:cursor-not-allowed"
-                                  />
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    placeholder="划手數"
-                                    value={entry.strokeCounts[lapIndex] || ''}
-                                    onChange={(e) => updateLapValue(entry.id, 'strokeCounts', lapIndex, e.target.value)}
-                                    disabled={!isAuthenticated}
-                                    className="w-full bg-paper/50 border border-ink/10 p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent text-sm text-center disabled:cursor-not-allowed"
-                                  />
+                                  <div className="space-y-1.5">
+                                    <label className="text-[9px] uppercase tracking-widest font-bold opacity-50">分段秒數</label>
+                                    <input 
+                                      type="text" 
+                                      placeholder="如: 14.5"
+                                      value={(entry.splits && entry.splits[index]) || ''}
+                                      onChange={(e) => handleArrayChange(entry.id, 'splits', index, e.target.value)}
+                                      disabled={!isAuthenticated}
+                                      className="w-full bg-white border border-ink/10 p-2.5 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all disabled:opacity-50"
+                                    />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <label className="text-[9px] uppercase tracking-widest font-bold opacity-50">划手數 (選填)</label>
+                                    <input 
+                                      type="text" 
+                                      placeholder="如: 18"
+                                      value={(entry.strokeCounts && entry.strokeCounts[index]) || ''}
+                                      onChange={(e) => handleArrayChange(entry.id, 'strokeCounts', index, e.target.value)}
+                                      disabled={!isAuthenticated}
+                                      className="w-full bg-white border border-ink/10 p-2.5 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all disabled:opacity-50"
+                                    />
+                                  </div>
                                 </div>
                               ))}
                             </div>
