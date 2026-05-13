@@ -7,6 +7,9 @@ type AnalyzeInputs = {
   videoFileName?: string;
   videoMimeType?: string;
   videoUrl?: string;
+  startTime?: string;
+  endTime?: string;
+  targetDescription?: string;
   strokeType?: string;
   textInput?: string;
   event?: string;
@@ -138,7 +141,7 @@ export async function analyzeWithGemini(
     const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
     const parts: unknown[] = [];
     const requestedStrokeType = resolveRequestedStrokeType(mode, inputs);
-    const systemInstruction = await buildSystemInstruction(requestedStrokeType);
+    const systemInstruction = await buildSystemInstruction(requestedStrokeType, buildTargetTrackingInstruction(inputs));
 
     if (inputs.videoFileName) {
       await waitForGeminiFileActive(inputs.videoFileName);
@@ -214,12 +217,15 @@ export async function analyzeWithGemini(
   }
 }
 
-async function buildSystemInstruction(strokeType: string | null) {
+async function buildSystemInstruction(strokeType: string | null, targetTrackingInstruction: string | null = null) {
   const coachFeedback = await fetchHistoricalCoachFeedback(strokeType);
   console.log(`[RAG System] 成功注入 ${Math.min(coachFeedback.length, RAG_INJECTION_LIMIT)} 筆教練歷史紀錄`);
 
   if (coachFeedback.length === 0) {
-    return SYSTEM_INSTRUCTION;
+    return [
+      targetTrackingInstruction,
+      SYSTEM_INSTRUCTION,
+    ].filter(Boolean).join("\n\n");
   }
 
   const historicalGuidance = coachFeedback
@@ -232,7 +238,26 @@ async function buildSystemInstruction(strokeType: string | null) {
     "以下是總教練過去針對此泳姿的專屬糾正紀錄。請務必吸收這些經驗，將其作為本次分析的最高標準，嚴禁給出與以下教練歷史糾正相衝突的建議：",
     historicalGuidance,
     "",
+    targetTrackingInstruction,
+    "",
     SYSTEM_INSTRUCTION,
+  ].filter(Boolean).join("\n");
+}
+
+function buildTargetTrackingInstruction(inputs: AnalyzeInputs) {
+  const startTime = normalizeText(inputs.startTime);
+  const endTime = normalizeText(inputs.endTime);
+  const targetDescription = normalizeText(inputs.targetDescription);
+
+  if (!startTime && !endTime && !targetDescription) {
+    return null;
+  }
+
+  return [
+    "【強制鎖定分析目標】：這段影片中有多名游泳者。請「嚴格且僅限於」分析符合以下條件的目標：",
+    `- 時間區段：從影片的 ${startTime || "未指定"} 到 ${endTime || "未指定"}`,
+    `- 目標特徵：${targetDescription || "未指定"}`,
+    "請絕對忽略畫面中的其他干擾人物。",
   ].join("\n");
 }
 

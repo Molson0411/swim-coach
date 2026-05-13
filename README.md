@@ -689,3 +689,11 @@ npm.cmd run lint
 - Added a separate records listener to build month options from the current month plus months that already contain user reports.
 - Added the empty state text `該月份尚無分析紀錄` when the selected month has no history.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-13 Target Tracking Prompt Injection
+
+- Added a Mode A `目標鎖定` card under the video upload area with `startTime`, `endTime`, and `targetDescription` inputs.
+- Updated the frontend `/api/analyze` payload so optional target tracking fields are sent with uploaded-video analysis requests.
+- Updated `api/analyze.ts` and local `server/gemini.ts` to accept the optional tracking fields without breaking older clients.
+- Added dynamic Gemini system instruction injection after RAG coach history and before the base system instruction, forcing analysis to focus only on the requested time segment and described swimmer.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

@@ -734,6 +734,9 @@ function AppContent() {
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
   const [textInput, setTextInput] = useState('');
   const [eventA, setEventA] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [targetDescription, setTargetDescription] = useState('');
 
   // Mode B Inputs
   const [raceEntries, setRaceEntries] = useState([
@@ -988,6 +991,9 @@ function AppContent() {
         videoStorageBucket: uploadedVideo?.bucket,
         videoMimeType: uploadedVideo?.mimeType,
         videoUrl: uploadedVideo?.downloadURL,
+        startTime: mode === 'A' ? startTime.trim() || undefined : undefined,
+        endTime: mode === 'A' ? endTime.trim() || undefined : undefined,
+        targetDescription: mode === 'A' ? targetDescription.trim() || undefined : undefined,
         textInput: mode === 'A' ? textInput : undefined,
         event: mode === 'A' ? eventA : undefined,
         raceEntries: mode === 'B' ? raceEntries.map(e => ({
@@ -1042,6 +1048,9 @@ function AppContent() {
     setVideoPreview(null);
     setTextInput('');
     setEventA('');
+    setStartTime('');
+    setEndTime('');
+    setTargetDescription('');
     setRaceEntries([
       { id: Date.now(), event: '50公尺自由式', customEvent: '', time: '', strokeCount: '', poolLength: '50', splits: '' }
     ]);
@@ -1474,6 +1483,35 @@ function AppContent() {
                             className="hidden"
                           />
                         </div>
+                      </div>
+
+                      <div className="rounded-[2rem] border border-ink bg-ink p-5 sm:p-6 text-white shadow-xl shadow-ink/10 space-y-4">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.24em] font-bold text-accent">Target Tracking</p>
+                          <h3 className="text-lg sm:text-xl font-bold uppercase tracking-tight font-serif italic">目標鎖定</h3>
+                        </div>
+                        <div className="grid sm:grid-cols-2 gap-3">
+                          <input
+                            type="text"
+                            value={startTime}
+                            onChange={(e) => setStartTime(e.target.value)}
+                            placeholder="起始時間"
+                            className="w-full rounded-2xl border border-white/15 bg-white/95 p-4 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all"
+                          />
+                          <input
+                            type="text"
+                            value={endTime}
+                            onChange={(e) => setEndTime(e.target.value)}
+                            placeholder="結束時間"
+                            className="w-full rounded-2xl border border-white/15 bg-white/95 p-4 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all"
+                          />
+                        </div>
+                        <textarea
+                          value={targetDescription}
+                          onChange={(e) => setTargetDescription(e.target.value)}
+                          placeholder="請描述目標學員特徵，例如：第3水道、戴紅色泳帽、黑色泳褲"
+                          className="w-full rounded-2xl border border-white/15 bg-white/95 p-4 h-28 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all resize-none"
+                        />
                       </div>
 
                       <div className="space-y-2">

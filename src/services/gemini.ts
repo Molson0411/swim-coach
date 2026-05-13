@@ -10,6 +10,9 @@ type AnalyzeInputs = {
   videoStoragePath?: string;
   videoStorageBucket?: string;
   videoUrl?: string;
+  startTime?: string;
+  endTime?: string;
+  targetDescription?: string;
   textInput?: string;
   event?: string;
   raceEntries?: {
