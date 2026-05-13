@@ -184,8 +184,10 @@ function timestampToSeconds(timestamp: string) {
 
 function VideoRetentionAlert() {
   return (
-    <div className="my-4 rounded-r-md border-l-4 border-[#93B7BE] bg-slate-50 p-4 text-sm leading-relaxed text-gray-600">
-      為保護隱私與節省系統資源，影片將於上傳 24 小時後自動銷毀並停止回放。您的專屬 AI 診斷與教練指導紀錄將為您永久保存。
+    <div className="bg-slate-50 border-l-4 border-[#93B7BE] p-4 my-4 rounded-r-md">
+      <p className="text-sm text-gray-600">
+        為保護隱私與節省系統資源，影片將於上傳 24 小時後自動銷毀並停止回放。您的專屬 AI 診斷與教練指導紀錄將為您永久保存。
+      </p>
     </div>
   );
 }
