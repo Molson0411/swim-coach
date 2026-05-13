@@ -47,7 +47,7 @@ import {
   OperationType
 } from './firebase';
 import { onAuthStateChanged, signInWithPopup, User } from 'firebase/auth';
-import { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc, updateDoc, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc, updateDoc, Timestamp, getDocs, limit } from 'firebase/firestore';
 
 type TrainingCalendarRecord = {
   id: string;
@@ -252,6 +252,49 @@ function getReportCreatedDate(item: AnalysisReport & { createdAt: any }) {
   return null;
 }
 
+function extractModeAFindingLabels(report: AnalysisReport | undefined) {
+  if (!report?.findings?.length) {
+    return [];
+  }
+
+  return report.findings
+    .map((finding) => [finding.metaphor, finding.analysis].filter(Boolean).join(' - '))
+    .map((finding) => finding.trim())
+    .filter(Boolean)
+    .slice(0, 5);
+}
+
+function getLatestModeAFindingsFromHistory(
+  reports: (AnalysisReport & { id: string, createdAt: any, event?: string, videoUrl?: string })[]
+) {
+  const latestModeA = reports
+    .filter((item) => item.mode === 'A')
+    .sort((a, b) => (getReportCreatedDate(b)?.getTime() || 0) - (getReportCreatedDate(a)?.getTime() || 0))[0];
+
+  return extractModeAFindingLabels(latestModeA);
+}
+
+async function fetchLatestModeAFindings(userId: string, fallbackHistory: (AnalysisReport & { id: string, createdAt: any, event?: string, videoUrl?: string })[]) {
+  try {
+    const snapshot = await getDocs(query(
+      collection(db, 'reports'),
+      where('uid', '==', userId),
+      where('mode', '==', 'A'),
+      orderBy('createdAt', 'desc'),
+      limit(1)
+    ));
+    const latestReport = snapshot.docs[0]?.data() as AnalysisReport | undefined;
+    const findings = extractModeAFindingLabels(latestReport);
+    if (findings.length > 0) {
+      return findings;
+    }
+  } catch (error) {
+    console.warn('[跨模式聯動] 無法從 Firestore 讀取最新 Mode A 診斷，改用目前 history 狀態:', error);
+  }
+
+  return getLatestModeAFindingsFromHistory(fallbackHistory);
+}
+
 function toMonthKey(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -281,6 +324,12 @@ function timestampToSeconds(timestamp: string) {
   const match = timestamp.match(/^(\d{2}):(\d{2})$/);
   if (!match) return 0;
   return Number(match[1]) * 60 + Number(match[2]);
+}
+
+const MODE_A_REF_MARKER = '(Ref: Mode A)';
+
+function stripModeARefMarker(text: string | undefined) {
+  return text?.replaceAll(MODE_A_REF_MARKER, '').replace(/\s{2,}/g, ' ').trim();
 }
 
 function VideoRetentionAlert() {
@@ -338,6 +387,28 @@ function TimestampText({
   onSeek: (timestamp: string) => void;
 }) {
   return <>{parseTextWithTimestamps(text, onSeek)}</>;
+}
+
+function ModeALinkedPlanText({
+  text,
+  onSeek,
+}: {
+  text?: string;
+  onSeek: (timestamp: string) => void;
+}) {
+  const hasModeARef = Boolean(text?.includes(MODE_A_REF_MARKER));
+
+  return (
+    <>
+      <TimestampText text={stripModeARefMarker(text)} onSeek={onSeek} />
+      {hasModeARef && (
+        <span className="bg-accent/10 text-accent border border-accent/20 px-2 py-0.5 rounded-full text-[9px] font-bold inline-flex items-center gap-1 ml-2">
+          <CheckCircle2 className="w-3 h-3" />
+          動作診斷連動建議
+        </span>
+      )}
+    </>
+  );
 }
 
 function buildMonthCalendarDays(baseDate: Date) {
@@ -1216,6 +1287,12 @@ function AppContent() {
       const uploadedVideo = mode === 'A' && videoFile
         ? await uploadVideoForAnalysis(videoFile)
         : null;
+      const historicalFindings = mode === 'B' && user
+        ? await fetchLatestModeAFindings(user.uid, history)
+        : [];
+      if (mode === 'B') {
+        console.log('[跨模式聯動] 送入 Mode B 的歷史 Mode A 瑕疵:', historicalFindings);
+      }
       console.log('[前端追蹤] 4. 上傳成功，取得網址:', uploadedVideo?.downloadURL || null);
 
       console.log('[前端追蹤] 5. 準備呼叫 /api/analyze');
@@ -1229,6 +1306,7 @@ function AppContent() {
         targetDescription: mode === 'A' ? targetDescription.trim() || undefined : undefined,
         textInput: mode === 'A' ? textInput : undefined,
         event: mode === 'A' ? eventA : undefined,
+        historicalFindings: mode === 'B' && historicalFindings.length > 0 ? historicalFindings : undefined,
         raceEntries: mode === 'B' ? raceEntries.map(e => ({
           event: e.event,
           time: e.time,
@@ -2306,7 +2384,7 @@ function AppContent() {
                                 <Target className="w-5 h-5" />
                               </div>
                               <h4 className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-accent mb-2">Drills (技術練習)</h4>
-                              <p className="text-xs sm:text-sm leading-relaxed text-ink/75"><TimestampText text={report.trainingPlan.drills} onSeek={handleSeek} /></p>
+                              <p className="text-xs sm:text-sm leading-relaxed text-ink/75"><ModeALinkedPlanText text={report.trainingPlan.drills} onSeek={handleSeek} /></p>
                             </div>
                             <div className="md:col-span-2 bg-[#2D3047] border border-ink/10 p-6 rounded-[2rem] shadow-xl shadow-ink/10 text-white">
                               <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-[#93B7BE] text-[#2D3047]">

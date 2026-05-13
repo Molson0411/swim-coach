@@ -735,3 +735,12 @@ npm.cmd run lint
 - Updated the report page to render Mode B SWOLF, DPS, CSS, and FINA Points in a professional data row, followed by a scientific training-plan grid with Warmup, Drills, highlighted Main Set, and Cool Down cards.
 - Updated admin/history summaries to prefer `performanceMetrics.analysis` when available.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-13 Cross-Mode Mode A to Mode B Planning Link
+
+- Added a Mode B pre-analysis lookup for the user's latest Mode A report in personal Firestore `reports`, with the current `history` state as a fallback.
+- Extracted Mode A `findings` into `historicalFindings` and sent them through the frontend `analyzeSwim` payload.
+- Updated `api/analyze.ts` and `server/gemini.ts` so Mode B prompts require `trainingPlan.drills` to prioritize corrective drills for historical Mode A flaws and append `(Ref: Mode A)` to linked drills.
+- Added report UI rendering that removes `(Ref: Mode A)` from visible drill text and replaces it with the badge `動作診斷連動建議`.
+- Preserved the raw `(Ref: Mode A)` marker in saved `trainingPlan.drills` data so Firestore history keeps the linkage metadata.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

@@ -68,6 +68,7 @@ type AnalyzeInputs = {
   strokeType?: string;
   textInput?: string;
   event?: string;
+  historicalFindings?: string[];
   raceEntries?: {
     event: string;
     time: string;
@@ -676,7 +677,20 @@ Mode B strict output rules:
 - trainingPlan is required and must include warmup, drills, mainSet, and coolDown.
 - metrics must mirror performanceMetrics for backward compatibility.
 - Base SWOLF and DPS on each lap's splits and strokeCounts. If a value must be estimated, explain the limitation in performanceMetrics.analysis and missingData.
+- If historicalFindings are provided, trainingPlan.drills must prioritize corrective drills for those Mode A flaws. Add the exact suffix "(Ref: Mode A)" after each linked drill name or linked drill sentence.
+${formatHistoricalFindings(inputs.historicalFindings)}
 ${formatRaceEntries(inputs.raceEntries)}`;
+}
+
+function formatHistoricalFindings(findings: AnalyzeInputs["historicalFindings"]) {
+  if (!findings || findings.length === 0) {
+    return "Historical Mode A findings: not provided.";
+  }
+
+  return [
+    "Historical Mode A findings for cross-mode planning:",
+    ...findings.map((finding, index) => `${index + 1}. ${finding}`),
+  ].join("\n");
 }
 
 function formatRaceEntries(entries: AnalyzeInputs["raceEntries"]) {

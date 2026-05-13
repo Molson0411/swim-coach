@@ -15,6 +15,7 @@ type AnalyzeInputs = {
   targetDescription?: string;
   textInput?: string;
   event?: string;
+  historicalFindings?: string[];
   raceEntries?: {
     event: string;
     time: string;

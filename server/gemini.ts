@@ -13,6 +13,7 @@ type AnalyzeInputs = {
   strokeType?: string;
   textInput?: string;
   event?: string;
+  historicalFindings?: string[];
   raceEntries?: {
     event: string;
     time: string;
@@ -90,9 +91,22 @@ Mode B strict output rules:
 - Use every raceEntries item, including splits and strokeCounts numeric arrays.
 - Calculate or estimate SWOLF, DPS, CSS, and FINA points from lap data.
 - Return performanceMetrics and trainingPlan. Keep metrics identical to performanceMetrics for backward compatibility.
+- If historicalFindings are provided, trainingPlan.drills must prioritize corrective drills for those Mode A flaws. Add the exact suffix "(Ref: Mode A)" after each linked drill name or linked drill sentence.
+${formatHistoricalFindings(inputs.historicalFindings)}
 ${inputs.raceEntries?.map((entry, index) => (
   `項目 ${index + 1}：${entry.event}，時間：${entry.time}，每趟划手數：${formatNumberArray(entry.strokeCounts)}，泳池長度：${entry.poolLength}，每趟分段：${formatNumberArray(entry.splits)}`
 )).join("\n") || "未提供數據"}`;
+}
+
+function formatHistoricalFindings(findings: AnalyzeInputs["historicalFindings"]) {
+  if (!findings || findings.length === 0) {
+    return "Historical Mode A findings: not provided.";
+  }
+
+  return [
+    "Historical Mode A findings for cross-mode planning:",
+    ...findings.map((finding, index) => `${index + 1}. ${finding}`),
+  ].join("\n");
 }
 
 function formatNumberArray(values?: number[]) {
