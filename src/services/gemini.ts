@@ -18,9 +18,9 @@ type AnalyzeInputs = {
   raceEntries?: {
     event: string;
     time: string;
-    strokeCount?: string;
+    strokeCounts?: number[];
     poolLength: string;
-    splits?: string;
+    splits?: number[];
   }[];
 };
 

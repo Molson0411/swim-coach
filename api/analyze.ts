@@ -64,9 +64,9 @@ type AnalyzeInputs = {
   raceEntries?: {
     event: string;
     time: string;
-    strokeCount?: string;
+    strokeCounts?: number[];
     poolLength: string;
-    splits?: string;
+    splits?: number[];
   }[];
 };
 
@@ -646,8 +646,12 @@ function formatRaceEntries(entries: AnalyzeInputs["raceEntries"]) {
   }
 
   return entries.map((entry, index) => (
-    `Entry ${index + 1}: event ${entry.event}, time ${entry.time}, stroke count ${entry.strokeCount || "not provided"}, pool length ${entry.poolLength}, splits ${entry.splits || "not provided"}`
+    `Entry ${index + 1}: event ${entry.event}, time ${entry.time}, stroke counts by lap ${formatNumberArray(entry.strokeCounts)}, pool length ${entry.poolLength}, splits by lap ${formatNumberArray(entry.splits)}`
   )).join("\n");
+}
+
+function formatNumberArray(values?: number[]) {
+  return values && values.length > 0 ? values.join(", ") : "not provided";
 }
 
 function buildVideoState(inputs: AnalyzeInputs, uploadedVideo: GeminiFile | null) {

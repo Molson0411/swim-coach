@@ -118,6 +118,74 @@ const tutorialSteps = [
   },
 ] as const;
 
+const modeBEventOptions = [
+  '50公尺自由式',
+  '100公尺自由式',
+  '200公尺自由式',
+  '400公尺自由式',
+  '800公尺自由式',
+  '1500公尺自由式',
+  '50公尺蝶式',
+  '100公尺蝶式',
+  '200公尺蝶式',
+  '50公尺仰式',
+  '100公尺仰式',
+  '200公尺仰式',
+  '50公尺蛙式',
+  '100公尺蛙式',
+  '200公尺蛙式',
+  '100公尺混合式',
+  '200公尺混合式',
+  '400公尺混合式',
+];
+
+type RaceEntryState = {
+  id: number;
+  event: string;
+  time: string;
+  poolLength: string;
+  splits: string[];
+  strokeCounts: string[];
+};
+
+function extractDistanceFromEvent(event: string) {
+  const match = event.match(/(\d+)\s*公尺/);
+  return match ? Number(match[1]) : 0;
+}
+
+function calculateLapCount(event: string, poolLength: string) {
+  const distance = extractDistanceFromEvent(event);
+  const pool = Number(poolLength);
+  if (!distance || !pool) return 0;
+  return Math.max(1, Math.floor(distance / pool));
+}
+
+function resizeLapValues(length: number, current: string[] = []) {
+  return Array.from({ length }, (_item, index) => current[index] || '');
+}
+
+function createRaceEntry(): RaceEntryState {
+  const event = modeBEventOptions[0];
+  const poolLength = '50';
+  const lapCount = calculateLapCount(event, poolLength);
+
+  return {
+    id: Date.now(),
+    event,
+    time: '',
+    poolLength,
+    splits: resizeLapValues(lapCount),
+    strokeCounts: resizeLapValues(lapCount),
+  };
+}
+
+function lapValuesToNumbers(values: string[]) {
+  return values.map((value) => {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  });
+}
+
 function createTrainingCalendarMockData(): TrainingCalendarRecord[] {
   const now = new Date();
   const year = now.getFullYear();
@@ -839,18 +907,7 @@ function AppContent() {
   const [playbackRate, setPlaybackRate] = useState(1);
 
   // Mode B Inputs
-  const [raceEntries, setRaceEntries] = useState([
-    { id: Date.now(), event: '50公尺自由式', customEvent: '', time: '', strokeCount: '', poolLength: '50', splits: '' }
-  ]);
-
-  const commonEvents = [
-    '50公尺自由式', '100公尺自由式', '200公尺自由式', '400公尺自由式', '800公尺自由式', '1500公尺自由式',
-    '50公尺仰式', '100公尺仰式', '200公尺仰式',
-    '50公尺蛙式', '100公尺蛙式', '200公尺蛙式',
-    '50公尺蝶式', '100公尺蝶式', '200公尺蝶式',
-    '200公尺個人混合式', '400公尺個人混合式',
-    '其他'
-  ];
+  const [raceEntries, setRaceEntries] = useState<RaceEntryState[]>(() => [createRaceEntry()]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -1128,7 +1185,7 @@ function AppContent() {
     }
     if (mode === 'B') {
       const isValid = raceEntries.every(entry => 
-        entry.event && (entry.event !== '其他' || entry.customEvent) && entry.time && entry.poolLength
+        entry.event && entry.time && entry.poolLength
       );
       if (!isValid) {
         console.warn('[前端阻斷] 缺少檔案或必要條件，提早結束執行', { mode, raceEntries });
@@ -1172,11 +1229,11 @@ function AppContent() {
         textInput: mode === 'A' ? textInput : undefined,
         event: mode === 'A' ? eventA : undefined,
         raceEntries: mode === 'B' ? raceEntries.map(e => ({
-          event: e.event === '其他' ? e.customEvent : e.event,
+          event: e.event,
           time: e.time,
-          strokeCount: e.strokeCount,
+          strokeCounts: lapValuesToNumbers(e.strokeCounts),
           poolLength: e.poolLength,
-          splits: e.splits
+          splits: lapValuesToNumbers(e.splits)
         })) : undefined
       });
       console.log('[前端追蹤] 6. /api/analyze 已回傳結果:', result);
@@ -1189,7 +1246,7 @@ function AppContent() {
             ...result,
             uid: user.uid,
             createdAt: serverTimestamp(),
-            event: mode === 'A' ? eventA : (raceEntries[0].event === '其他' ? raceEntries[0].customEvent : raceEntries[0].event),
+            event: mode === 'A' ? eventA : raceEntries[0].event,
             videoUrl: uploadedVideo?.downloadURL || null
           });
           console.log('[前端追蹤] 8. 個人 reports 歷史紀錄寫入完成');
@@ -1230,15 +1287,13 @@ function AppContent() {
     setTargetDescription('');
     setCurrentReportVideoUrl(null);
     setPlaybackRate(1);
-    setRaceEntries([
-      { id: Date.now(), event: '50公尺自由式', customEvent: '', time: '', strokeCount: '', poolLength: '50', splits: '' }
-    ]);
+    setRaceEntries([createRaceEntry()]);
   };
 
   const addRaceEntry = () => {
     setRaceEntries([
       ...raceEntries,
-      { id: Date.now(), event: '50公尺自由式', customEvent: '', time: '', strokeCount: '', poolLength: '50', splits: '' }
+      createRaceEntry()
     ]);
   };
 
@@ -1248,8 +1303,36 @@ function AppContent() {
     }
   };
 
-  const updateRaceEntry = (id: number, field: string, value: string) => {
-    setRaceEntries(raceEntries.map(e => e.id === id ? { ...e, [field]: value } : e));
+  const updateRaceEntry = (id: number, field: 'event' | 'time' | 'poolLength', value: string) => {
+    setRaceEntries(raceEntries.map((entry) => {
+      if (entry.id !== id) return entry;
+
+      const nextEntry = { ...entry, [field]: value };
+      if (field === 'event' || field === 'poolLength') {
+        const lapCount = calculateLapCount(nextEntry.event, nextEntry.poolLength);
+        return {
+          ...nextEntry,
+          splits: resizeLapValues(lapCount),
+          strokeCounts: resizeLapValues(lapCount),
+        };
+      }
+
+      return nextEntry;
+    }));
+  };
+
+  const updateLapValue = (
+    id: number,
+    field: 'splits' | 'strokeCounts',
+    lapIndex: number,
+    value: string
+  ) => {
+    setRaceEntries(raceEntries.map((entry) => {
+      if (entry.id !== id) return entry;
+      const nextValues = [...entry[field]];
+      nextValues[lapIndex] = value;
+      return { ...entry, [field]: nextValues };
+    }));
   };
 
   const deleteHistoryItem = async (e: React.MouseEvent, id: string) => {
@@ -1845,6 +1928,11 @@ function AppContent() {
                             !isAuthenticated && "opacity-50 cursor-not-allowed"
                           )}
                         >
+                          {(() => {
+                            const totalLaps = calculateLapCount(entry.event, entry.poolLength);
+
+                            return (
+                              <>
                           <div className="flex justify-between items-center mb-2">
                             <span className="text-xs sm:text-[10px] font-bold text-accent uppercase tracking-widest">Entry #{index + 1}</span>
                             {raceEntries.length > 1 && (
@@ -1870,20 +1958,10 @@ function AppContent() {
                                 disabled={!isAuthenticated}
                                 className="w-full bg-paper/50 border border-ink/10 p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base disabled:cursor-not-allowed"
                               >
-                                {commonEvents.map(ev => (
+                                {modeBEventOptions.map(ev => (
                                   <option key={ev} value={ev}>{ev}</option>
                                 ))}
                               </select>
-                              {entry.event === '其他' && (
-                                <input 
-                                  type="text" 
-                                  placeholder="請輸入自定義項目"
-                                  value={entry.customEvent}
-                                  onChange={(e) => updateRaceEntry(entry.id, 'customEvent', e.target.value)}
-                                  disabled={!isAuthenticated}
-                                  className="w-full bg-paper/50 border border-ink/10 p-4 mt-2 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base disabled:cursor-not-allowed"
-                                />
-                              )}
                             </div>
                             <div className="space-y-2">
                               <label className="text-xs sm:text-[10px] uppercase tracking-widest font-bold opacity-50">比賽秒數 (必填)</label>
@@ -1911,30 +1989,48 @@ function AppContent() {
                                 <option value="50">50 公尺</option>
                               </select>
                             </div>
-                            <div className="space-y-2">
-                              <label className="text-xs sm:text-[10px] uppercase tracking-widest font-bold opacity-50">划手數 (選填)</label>
-                              <input 
-                                type="text" 
-                                placeholder="例如：42"
-                                value={entry.strokeCount}
-                                onChange={(e) => updateRaceEntry(entry.id, 'strokeCount', e.target.value)}
-                                disabled={!isAuthenticated}
-                                className="w-full bg-paper/50 border border-ink/10 p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base disabled:cursor-not-allowed"
-                              />
+                            <div className="rounded-2xl border border-accent/15 bg-accent/5 p-4">
+                              <p className="text-[10px] uppercase tracking-widest font-bold text-accent">Total Laps</p>
+                              <p className="mt-1 text-2xl font-bold text-ink">{totalLaps} 趟</p>
                             </div>
                           </div>
 
-                          <div className="space-y-2">
-                            <label className="text-xs sm:text-[10px] uppercase tracking-widest font-bold opacity-50">分段成績 (選填，例如：30.5, 32.1...)</label>
-                            <input 
-                              type="text" 
-                              placeholder="例如：30.5, 32.1"
-                              value={entry.splits}
-                              onChange={(e) => updateRaceEntry(entry.id, 'splits', e.target.value)}
-                              disabled={!isAuthenticated}
-                              className="w-full bg-paper/50 border border-ink/10 p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base disabled:cursor-not-allowed"
-                            />
+                          <div className="space-y-3">
+                            <div>
+                              <p className="text-xs sm:text-[10px] uppercase tracking-widest font-bold opacity-50">動態趟數輸入</p>
+                              <p className="mt-1 text-xs text-ink/45">依據項目距離與泳池長度自動產生每趟分段秒數與划手數。</p>
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                              {Array.from({ length: totalLaps }, (_lap, lapIndex) => (
+                                <div key={`${entry.id}-lap-${lapIndex}`} className="rounded-2xl border border-ink/10 bg-white p-3 space-y-3">
+                                  <p className="text-center text-[10px] font-bold uppercase tracking-widest text-ink/50">
+                                    Lap {lapIndex + 1}
+                                  </p>
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    placeholder="分段秒數"
+                                    value={entry.splits[lapIndex] || ''}
+                                    onChange={(e) => updateLapValue(entry.id, 'splits', lapIndex, e.target.value)}
+                                    disabled={!isAuthenticated}
+                                    className="w-full bg-paper/50 border border-ink/10 p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent text-sm text-center disabled:cursor-not-allowed"
+                                  />
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    placeholder="划手數"
+                                    value={entry.strokeCounts[lapIndex] || ''}
+                                    onChange={(e) => updateLapValue(entry.id, 'strokeCounts', lapIndex, e.target.value)}
+                                    disabled={!isAuthenticated}
+                                    className="w-full bg-paper/50 border border-ink/10 p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent text-sm text-center disabled:cursor-not-allowed"
+                                  />
+                                </div>
+                              ))}
+                            </div>
                           </div>
+                              </>
+                            );
+                          })()}
                         </div>
                       ))}
 

@@ -716,3 +716,13 @@ npm.cmd run lint
 - Updated timestamp buttons to use explicit brand colors `#93B7BE` and `#2D3047`, rounded corners, and tactile hover/active feedback.
 - Kept timestamp rendering wired across diagnosis, advice, metrics, training plan, growth advice, and missing-data text.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-13 Mode B Strict Event and Lap Grid Refactor
+
+- Replaced Mode B `commonEvents` and custom event input with a strict event dropdown covering freestyle, butterfly, backstroke, breaststroke, and medley distances.
+- Added event-distance parsing and dynamic lap calculation from selected event distance and pool length.
+- Changed Mode B `splits` and `strokeCounts` from single strings to per-lap `string[]` state, reset whenever event or pool length changes.
+- Replaced the single split/stroke-count inputs with a responsive per-lap input grid.
+- Payload formatting now sends `splits` and `strokeCounts` as `number[]`, with empty lap values converted to `0`.
+- Updated frontend service and backend/local Gemini input formatting to read per-lap arrays.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

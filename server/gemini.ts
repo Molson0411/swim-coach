@@ -16,9 +16,9 @@ type AnalyzeInputs = {
   raceEntries?: {
     event: string;
     time: string;
-    strokeCount?: string;
+    strokeCounts?: number[];
     poolLength: string;
-    splits?: string;
+    splits?: number[];
   }[];
 };
 
@@ -85,8 +85,12 @@ function buildPrompt(mode: AnalysisMode, inputs: AnalyzeInputs) {
 
 輸入模式 B：數據與訓練分析
 ${inputs.raceEntries?.map((entry, index) => (
-  `項目 ${index + 1}：${entry.event}，時間：${entry.time}，划手數：${entry.strokeCount || "未提供"}，泳池長度：${entry.poolLength}，分段：${entry.splits || "未提供"}`
+  `項目 ${index + 1}：${entry.event}，時間：${entry.time}，每趟划手數：${formatNumberArray(entry.strokeCounts)}，泳池長度：${entry.poolLength}，每趟分段：${formatNumberArray(entry.splits)}`
 )).join("\n") || "未提供數據"}`;
+}
+
+function formatNumberArray(values?: number[]) {
+  return values && values.length > 0 ? values.join(", ") : "未提供";
 }
 
 export async function startGeminiFileUpload(input: {
