@@ -47,7 +47,7 @@ import {
   OperationType
 } from './firebase';
 import { onAuthStateChanged, signInWithPopup, User } from 'firebase/auth';
-import { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc, updateDoc, Timestamp, getDocs, limit } from 'firebase/firestore';
+import { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc, updateDoc, Timestamp, getDocs, limit, getDoc, setDoc } from 'firebase/firestore';
 
 type TrainingCalendarRecord = {
   id: string;
@@ -849,11 +849,15 @@ function AdminReviewDashboard() {
 function AthleteProfileModal({
   isOpen,
   initialProfile,
+  isLoading,
+  isSaving,
   onSave,
   onCancel,
 }: {
   isOpen: boolean;
   initialProfile: AthleteProfile;
+  isLoading?: boolean;
+  isSaving?: boolean;
   onSave: (profile: AthleteProfile) => void;
   onCancel: () => void;
 }) {
@@ -875,7 +879,7 @@ function AthleteProfileModal({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onCancel}
+            onClick={() => !isLoading && !isSaving && onCancel()}
             className="absolute inset-0 bg-ink/40 backdrop-blur-sm"
           />
           <motion.div
@@ -896,39 +900,50 @@ function AthleteProfileModal({
               </div>
             </div>
 
-            <div className="space-y-4">
-              <label className="block space-y-2">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-ink/50">Gender</span>
-                <select
-                  value={draft.gender}
-                  onChange={(event) => setDraft((current) => ({ ...current, gender: event.target.value as AthleteProfile['gender'] }))}
-                  className="w-full rounded-2xl border border-ink/10 bg-paper/50 px-4 py-3 text-sm font-bold text-ink outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent/20"
+            {isLoading ? (
+              <div className="flex flex-col items-center justify-center gap-4 rounded-2xl bg-paper/60 p-10 text-center">
+                <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#93B7BE]/30 border-t-[#2D3047]" />
+                <p className="text-[11px] font-bold uppercase tracking-widest text-ink/50">
+                  Loading athlete profile...
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-4">
+                  <label className="block space-y-2">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-ink/50">Gender</span>
+                    <select
+                      value={draft.gender}
+                      onChange={(event) => setDraft((current) => ({ ...current, gender: event.target.value as AthleteProfile['gender'] }))}
+                      className="w-full rounded-2xl border border-ink/10 bg-paper/50 px-4 py-3 text-sm font-bold text-ink outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent/20"
+                    >
+                      <option value="">Select gender</option>
+                      <option value="M">Male</option>
+                      <option value="F">Female</option>
+                    </select>
+                  </label>
+
+                  <label className="block space-y-2">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-ink/50">Birth Date</span>
+                    <input
+                      type="date"
+                      value={draft.birthDate}
+                      onChange={(event) => setDraft((current) => ({ ...current, birthDate: event.target.value }))}
+                      className="w-full rounded-2xl border border-ink/10 bg-paper/50 px-4 py-3 text-sm font-bold text-ink outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent/20"
+                    />
+                  </label>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={!canSave || isSaving}
+                  onClick={() => canSave && onSave(draft)}
+                  className="mt-7 w-full rounded-full bg-[#2D3047] px-5 py-4 text-[11px] font-bold uppercase tracking-widest text-white shadow-lg shadow-ink/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#93B7BE] hover:shadow-lg active:scale-95 disabled:cursor-not-allowed disabled:bg-gray-400 disabled:shadow-none disabled:hover:translate-y-0"
                 >
-                  <option value="">Select gender</option>
-                  <option value="M">Male</option>
-                  <option value="F">Female</option>
-                </select>
-              </label>
-
-              <label className="block space-y-2">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-ink/50">Birth Date</span>
-                <input
-                  type="date"
-                  value={draft.birthDate}
-                  onChange={(event) => setDraft((current) => ({ ...current, birthDate: event.target.value }))}
-                  className="w-full rounded-2xl border border-ink/10 bg-paper/50 px-4 py-3 text-sm font-bold text-ink outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent/20"
-                />
-              </label>
-            </div>
-
-            <button
-              type="button"
-              disabled={!canSave}
-              onClick={() => canSave && onSave(draft)}
-              className="mt-7 w-full rounded-full bg-[#2D3047] px-5 py-4 text-[11px] font-bold uppercase tracking-widest text-white shadow-lg shadow-ink/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#93B7BE] hover:shadow-lg active:scale-95 disabled:cursor-not-allowed disabled:bg-gray-400 disabled:shadow-none disabled:hover:translate-y-0"
-            >
-              Save & Continue
-            </button>
+                  {isSaving ? 'Saving...' : 'Save & Continue'}
+                </button>
+              </>
+            )}
           </motion.div>
         </div>
       )}
@@ -1076,6 +1091,9 @@ function AppContent() {
   const [raceEntries, setRaceEntries] = useState<RaceEntryState[]>(() => [createRaceEntry()]);
   const [athleteProfile, setAthleteProfile] = useState<AthleteProfile>({ gender: '', birthDate: '' });
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const [isProfileSaving, setIsProfileSaving] = useState(false);
+  const [pendingModeBAfterProfile, setPendingModeBAfterProfile] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -1127,6 +1145,7 @@ function AppContent() {
 
   const handleSelectModeB = () => {
     if (!isAthleteProfileComplete) {
+      setPendingModeBAfterProfile(true);
       setShowProfileModal(true);
       return;
     }
@@ -1134,10 +1153,38 @@ function AppContent() {
     setMode('B');
   };
 
-  const handleSaveAthleteProfile = (profile: AthleteProfile) => {
-    setAthleteProfile(profile);
-    setShowProfileModal(false);
-    setMode('B');
+  const handleOpenProfileEditor = () => {
+    setPendingModeBAfterProfile(false);
+    setShowProfileModal(true);
+  };
+
+  const handleSaveAthleteProfile = async (profile: AthleteProfile) => {
+    if (!user) {
+      toast.error('Please login before saving athlete profile.');
+      return;
+    }
+
+    setIsProfileSaving(true);
+    try {
+      await saveUserProfile(user);
+      await setDoc(doc(db, 'users', user.uid), {
+        gender: profile.gender,
+        birthDate: profile.birthDate,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+      setAthleteProfile(profile);
+      setShowProfileModal(false);
+      toast.success('泳者檔案已更新');
+      if (pendingModeBAfterProfile) {
+        setMode('B');
+        setPendingModeBAfterProfile(false);
+      }
+    } catch (error) {
+      console.error('[Athlete Profile] Failed to save profile:', error);
+      handleFirestoreError(error, OperationType.UPDATE, 'users');
+    } finally {
+      setIsProfileSaving(false);
+    }
   };
 
   const handlePlaybackRateChange = (rate: number) => {
@@ -1223,6 +1270,41 @@ function AppContent() {
       setIsAuthReady(true);
       if (u) {
         setIsSigningIn(false);
+        setIsProfileLoading(true);
+        setShowProfileModal(true);
+        getDoc(doc(db, 'users', u.uid))
+          .then((snapshot) => {
+            if (!isMounted) return;
+            const data = snapshot.data();
+            const cloudGender = data?.gender;
+            const cloudBirthDate = data?.birthDate;
+
+            if ((cloudGender === 'M' || cloudGender === 'F') && typeof cloudBirthDate === 'string' && cloudBirthDate) {
+              setAthleteProfile({ gender: cloudGender, birthDate: cloudBirthDate });
+              setShowProfileModal(false);
+              setPendingModeBAfterProfile(false);
+            } else {
+              setAthleteProfile({ gender: '', birthDate: '' });
+              setPendingModeBAfterProfile(false);
+              setShowProfileModal(true);
+            }
+          })
+          .catch((error) => {
+            if (!isMounted) return;
+            console.error('[Athlete Profile] Failed to load cloud profile:', error);
+            handleFirestoreError(error, OperationType.GET, 'users');
+            setShowProfileModal(false);
+          })
+          .finally(() => {
+            if (!isMounted) return;
+            setIsProfileLoading(false);
+          });
+      } else {
+        setAthleteProfile({ gender: '', birthDate: '' });
+        setShowProfileModal(false);
+        setIsProfileLoading(false);
+        setIsProfileSaving(false);
+        setPendingModeBAfterProfile(false);
       }
     });
 
@@ -1660,8 +1742,13 @@ function AppContent() {
       <AthleteProfileModal
         isOpen={showProfileModal}
         initialProfile={athleteProfile}
+        isLoading={isProfileLoading}
+        isSaving={isProfileSaving}
         onSave={handleSaveAthleteProfile}
-        onCancel={() => setShowProfileModal(false)}
+        onCancel={() => {
+          setShowProfileModal(false);
+          setPendingModeBAfterProfile(false);
+        }}
       />
       {/* Header */}
       <header className="border-b border-ink/10 p-4 md:p-6 flex flex-col sm:flex-row justify-between items-center bg-white/80 backdrop-blur-md sticky top-0 z-50 gap-4 sm:gap-0">
@@ -1692,6 +1779,13 @@ function AppContent() {
                 title="History"
               >
                 <History className="w-5 h-5" />
+              </button>
+              <button
+                onClick={handleOpenProfileEditor}
+                className="p-2 bg-ink/5 text-ink/60 hover:bg-ink hover:text-white rounded-full transition-all"
+                title="Edit Profile"
+              >
+                <UserIcon className="w-5 h-5" />
               </button>
               <button 
                 onClick={logout}

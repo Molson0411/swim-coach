@@ -778,3 +778,12 @@ npm.cmd run lint
 - Added demographic calibration prompts in `api/analyze.ts` and `server/gemini.ts` so FINA Points use gender-specific base times and age-aware physiology guidance.
 - Personal Firestore `reports` writes now preserve the Mode B `athleteProfile` used for the analysis.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-13 Athlete Profile Cloud Persistence
+
+- Added Firestore profile sync in `App.tsx`: after auth resolves, the app reads `users/{uid}` and hydrates local `athleteProfile` from cloud `gender` and `birthDate`.
+- New users without profile data are guided into the Athlete Profile modal, while returning users with cloud data are not interrupted.
+- Added modal loading and saving states, including a spinner while cloud profile data is being fetched.
+- Reworked `Save & Continue` to persist profile changes with `setDoc(..., { merge: true })`, show `泳者檔案已更新`, and only proceed to Mode B when the modal was opened from the Mode B entry.
+- Added a Header `Edit Profile` icon button next to History and Logout so users can edit their cloud-backed profile anytime.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
