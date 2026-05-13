@@ -2,20 +2,34 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
-  --font-serif: "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Source Han Sans TC", "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Source Han Sans TC", "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   
-  --color-ink: #303036;
-  --color-accent: #30BCED;
+  --color-ink: #2D3047;
+  --color-accent: #93B7BE;
   --color-paper: #f7f9fb;
 }
 
 html {
-  font-family: "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
+  font-family: "Source Han Sans TC", "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
 }
 
 body {
   @apply font-sans antialiased bg-paper text-ink;
-  font-family: "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
+  font-family: "Source Han Sans TC", "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  button,
+  a,
+  [role="button"],
+  [class*="cursor-pointer"] {
+    @apply transition-all duration-200 ease-in-out hover:-translate-y-0.5 hover:shadow-lg active:scale-95 active:shadow-md cursor-pointer;
+  }
+
+  button:disabled,
+  [aria-disabled="true"] {
+    @apply cursor-not-allowed hover:translate-y-0 hover:shadow-none active:scale-100 active:shadow-none;
+  }
 }

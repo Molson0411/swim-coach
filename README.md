@@ -678,3 +678,14 @@ npm.cmd run lint
 - Updated `firestore.rules` schema for `status`, `reviewStatus`, optional `updatedAt`, and admin review updates.
 - Added comments noting Firestore composite indexes must be updated for `status + strokeType + createdAt` RAG queries and `status + createdAt` admin list queries.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed outside the sandbox after the known Windows/esbuild `spawn EPERM` issue appeared inside the sandbox.
+
+## 2026-05-13 Frontend Brand UI and Monthly Records Filter
+
+- Updated Tailwind theme colors so the primary brand color is `#2D3047` and the hover accent is `#93B7BE`, while preserving the Source Han Sans / Noto Sans TC font stack.
+- Added global tactile feedback for buttons, links, role-button elements, and cursor-pointer interactive controls with hover lift, shadow, active scale, and pointer cursor behavior.
+- Reworked primary circular icons and major action buttons to use dark brand backgrounds, white icons/text, and the light brand hover state.
+- Added `selectedMonth` state and a month dropdown to the My Records / Analysis History page.
+- Added Firestore month filtering with `where("createdAt", ">=", startOfMonth)` and `where("createdAt", "<=", endOfMonth)` using `Timestamp.fromDate(...)`.
+- Added a separate records listener to build month options from the current month plus months that already contain user reports.
+- Added the empty state text `該月份尚無分析紀錄` when the selected month has no history.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

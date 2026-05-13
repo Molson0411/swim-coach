@@ -45,7 +45,7 @@ import {
   OperationType
 } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc, updateDoc, Timestamp } from 'firebase/firestore';
 
 type TrainingCalendarRecord = {
   id: string;
@@ -149,6 +149,31 @@ function getReportCreatedDate(item: AnalysisReport & { createdAt: any }) {
   }
 
   return null;
+}
+
+function toMonthKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}
+
+function getMonthStart(monthKey: string) {
+  const [yearValue, monthValue] = monthKey.split('-').map(Number);
+  return new Date(yearValue, monthValue - 1, 1);
+}
+
+function getMonthRange(monthKey: string) {
+  const [yearValue, monthValue] = monthKey.split('-').map(Number);
+  const start = new Date(yearValue, monthValue - 1, 1, 0, 0, 0, 0);
+  const end = new Date(yearValue, monthValue, 0, 23, 59, 59, 999);
+  return { start, end };
+}
+
+function formatMonthOption(monthKey: string) {
+  return getMonthStart(monthKey).toLocaleDateString('zh-TW', {
+    year: 'numeric',
+    month: 'long',
+  });
 }
 
 function buildMonthCalendarDays(baseDate: Date) {
@@ -351,7 +376,7 @@ function AdminReviewDashboard() {
       <header className="border-b border-ink/10 bg-white/90 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="h-12 w-12 rounded-full bg-accent/10 text-accent flex items-center justify-center">
+            <div className="h-12 w-12 rounded-full bg-ink text-white flex items-center justify-center">
               <ShieldCheck className="h-6 w-6" />
             </div>
             <div>
@@ -393,7 +418,7 @@ function AdminReviewDashboard() {
 
         {!adminUser && isAdminAuthReady && (
           <section className="rounded-[2rem] border border-ink/10 bg-white p-8 text-center shadow-xl shadow-ink/5">
-            <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-accent/10 text-accent flex items-center justify-center">
+            <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-ink text-white flex items-center justify-center">
               <LogIn className="h-6 w-6" />
             </div>
             <h2 className="text-2xl font-bold text-ink">Admin sign-in required</h2>
@@ -538,7 +563,7 @@ function AdminReviewDashboard() {
                 <button
                   type="button"
                   onClick={() => setSelectedReview(null)}
-                  className="h-10 w-10 rounded-full bg-ink/5 text-ink/60 hover:bg-accent hover:text-white transition-colors flex items-center justify-center"
+                  className="h-10 w-10 rounded-full bg-ink text-white hover:bg-accent transition-colors flex items-center justify-center"
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -567,7 +592,7 @@ function AdminReviewDashboard() {
                 <button
                   type="button"
                   onClick={handleSubmitRevision}
-                  className="flex-1 rounded-full bg-accent px-5 py-3 text-[11px] uppercase tracking-widest font-bold text-white hover:bg-ink transition-colors"
+                  className="flex-1 rounded-full bg-ink px-5 py-3 text-[11px] uppercase tracking-widest font-bold text-white hover:bg-accent transition-colors"
                 >
                   Save Revision
                 </button>
@@ -699,6 +724,8 @@ function AppContent() {
   const [progress, setProgress] = useState(0);
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
   const [history, setHistory] = useState<(AnalysisReport & { id: string, createdAt: any, event?: string })[]>([]);
+  const [availableMonths, setAvailableMonths] = useState<string[]>([toMonthKey(new Date())]);
+  const [selectedMonth, setSelectedMonth] = useState(() => toMonthKey(new Date()));
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ isOpen: boolean, id: string }>({ isOpen: false, id: '' });
   
@@ -723,7 +750,11 @@ function AppContent() {
   ];
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const calendarBaseDate = useMemo(() => new Date(), []);
+  const monthOptions = useMemo(() => {
+    const options = new Set([toMonthKey(new Date()), selectedMonth, ...availableMonths]);
+    return Array.from(options).sort((a, b) => b.localeCompare(a));
+  }, [availableMonths, selectedMonth]);
+  const calendarBaseDate = useMemo(() => getMonthStart(selectedMonth), [selectedMonth]);
   const todayKey = useMemo(() => toCalendarDateKey(new Date()), []);
   const calendarDays = useMemo(() => buildMonthCalendarDays(calendarBaseDate), [calendarBaseDate]);
   const monthLabel = useMemo(
@@ -758,6 +789,10 @@ function AppContent() {
     }, {})
   ), [calendarRecords]);
   const selectedCalendarRecords = selectedCalendarDate ? recordsByDate[selectedCalendarDate] || [] : [];
+
+  useEffect(() => {
+    setSelectedCalendarDate(null);
+  }, [selectedMonth]);
 
   useEffect(() => {
     if (!isAnalyzing) {
@@ -840,6 +875,34 @@ function AppContent() {
       );
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
+        const months = snapshot.docs
+          .map((reportDoc) => getReportCreatedDate(reportDoc.data() as AnalysisReport & { createdAt: any }))
+          .filter((date): date is Date => Boolean(date))
+          .map((date) => toMonthKey(date));
+
+        setAvailableMonths(Array.from(new Set([toMonthKey(new Date()), ...months])).sort((a, b) => b.localeCompare(a)));
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'reports');
+      });
+
+      return () => unsubscribe();
+    }
+
+    setAvailableMonths([toMonthKey(new Date())]);
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      const { start, end } = getMonthRange(selectedMonth);
+      const q = query(
+        collection(db, 'reports'),
+        where('uid', '==', user.uid),
+        where('createdAt', '>=', Timestamp.fromDate(start)),
+        where('createdAt', '<=', Timestamp.fromDate(end)),
+        orderBy('createdAt', 'desc')
+      );
+
+      const unsubscribe = onSnapshot(q, (snapshot) => {
         const reports = snapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
@@ -850,10 +913,10 @@ function AppContent() {
       });
 
       return () => unsubscribe();
-    } else {
-      setHistory([]);
     }
-  }, [user]);
+
+    setHistory([]);
+  }, [user, selectedMonth]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     console.log('[前端追蹤] 檔案選擇事件已觸發');
@@ -1028,8 +1091,8 @@ function AppContent() {
       />
       {/* Header */}
       <header className="border-b border-ink/10 p-4 md:p-6 flex flex-col sm:flex-row justify-between items-center bg-white/80 backdrop-blur-md sticky top-0 z-50 gap-4 sm:gap-0">
-        <div className="flex items-center gap-3 cursor-pointer w-full sm:w-auto" onClick={resetMode}>
-          <div className="bg-accent p-2 rounded-2xl shadow-lg shadow-accent/20">
+        <div className="flex items-center gap-3 cursor-pointer w-full sm:w-auto" onClick={resetMode} role="button" tabIndex={0}>
+          <div className="bg-ink p-2 rounded-2xl shadow-lg shadow-ink/20">
             <Waves className="text-white w-6 h-6" />
           </div>
           <div>
@@ -1050,7 +1113,7 @@ function AppContent() {
                 onClick={() => setActiveTab('history')}
                 className={cn(
                   "p-2 rounded-full transition-all",
-                  activeTab === 'history' ? "bg-accent text-white shadow-lg shadow-accent/20" : "bg-ink/5 text-ink/60 hover:bg-ink/10 hover:text-ink"
+                  activeTab === 'history' ? "bg-ink text-white shadow-lg shadow-ink/20 hover:bg-accent" : "bg-ink/5 text-ink/60 hover:bg-ink hover:text-white"
                 )}
                 title="History"
               >
@@ -1058,7 +1121,7 @@ function AppContent() {
               </button>
               <button 
                 onClick={logout}
-                className="p-2 bg-ink/5 text-ink/60 hover:bg-accent hover:text-white rounded-full transition-all"
+                className="p-2 bg-ink text-white hover:bg-accent rounded-full transition-all"
                 title="Logout"
               >
                 <LogOut className="w-5 h-5" />
@@ -1112,18 +1175,34 @@ function AppContent() {
             >
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <h2 className="text-2xl sm:text-4xl font-bold uppercase tracking-tight font-serif italic">Analysis History</h2>
-                <button 
-                  onClick={() => setActiveTab('input')}
-                  className="text-[10px] uppercase tracking-widest font-bold opacity-50 hover:opacity-100 transition-opacity flex items-center gap-2"
-                >
-                  <ArrowLeft className="w-3 h-3" /> Back to App
-                </button>
+                <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
+                  <label className="flex items-center justify-between gap-3 rounded-full border border-ink/30 bg-white px-4 py-2 text-ink shadow-sm shadow-ink/5 sm:justify-start">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-ink/60">Month</span>
+                    <select
+                      value={selectedMonth}
+                      onChange={(event) => setSelectedMonth(event.target.value)}
+                      className="bg-transparent text-xs font-bold text-ink outline-none"
+                    >
+                      {monthOptions.map((monthKey) => (
+                        <option key={monthKey} value={monthKey}>
+                          {formatMonthOption(monthKey)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    onClick={() => setActiveTab('input')}
+                    className="rounded-full bg-ink px-5 py-2 text-[10px] uppercase tracking-widest font-bold text-white hover:bg-accent flex items-center justify-center gap-2"
+                  >
+                    <ArrowLeft className="w-3 h-3" /> Back to App
+                  </button>
+                </div>
               </div>
 
               <div className="bg-white border border-ink/10 rounded-[2rem] p-4 sm:p-8 shadow-xl shadow-ink/5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                   <div className="flex items-center gap-3">
-                    <div className="h-11 w-11 rounded-full bg-accent/10 text-accent flex items-center justify-center">
+                    <div className="h-11 w-11 rounded-full bg-ink text-white flex items-center justify-center">
                       <CalendarDays className="h-5 w-5" />
                     </div>
                     <div>
@@ -1159,7 +1238,7 @@ function AppContent() {
                           !cell.date && "pointer-events-none opacity-0",
                           cell.date && "bg-paper/60 text-ink hover:border-accent/40 hover:bg-white",
                           hasRecords && "cursor-pointer shadow-sm hover:shadow-md hover:-translate-y-0.5",
-                          isToday && "bg-accent text-white hover:bg-accent hover:text-white"
+                          isToday && "bg-ink text-white hover:bg-accent hover:text-white"
                         )}
                       >
                         {cell.date && (
@@ -1167,7 +1246,7 @@ function AppContent() {
                             <span className="text-sm sm:text-base font-bold">{cell.date.getDate()}</span>
                             <span className={cn(
                               "h-1.5 w-1.5 rounded-full",
-                              hasRecords ? (isToday ? "bg-white" : "bg-accent") : "bg-transparent"
+                              hasRecords ? (isToday ? "bg-white" : "bg-ink") : "bg-transparent"
                             )} />
                           </>
                         )}
@@ -1206,7 +1285,7 @@ function AppContent() {
                         </div>
                         <button
                           onClick={() => setSelectedCalendarDate(null)}
-                          className="h-10 w-10 rounded-full bg-ink/5 text-ink/60 hover:bg-accent hover:text-white transition-colors flex items-center justify-center"
+                          className="h-10 w-10 rounded-full bg-ink text-white hover:bg-accent transition-colors flex items-center justify-center"
                           type="button"
                         >
                           <X className="h-5 w-5" />
@@ -1250,10 +1329,15 @@ function AppContent() {
 
               {history.length === 0 ? (
                 <div className="bg-white border border-ink/5 p-16 rounded-[3rem] text-center space-y-4">
-                  <div className="w-16 h-16 bg-ink/5 text-ink/20 rounded-full flex items-center justify-center mx-auto">
+                  <div className="w-16 h-16 bg-ink text-white rounded-full flex items-center justify-center mx-auto">
                     <History className="w-8 h-8" />
                   </div>
-                  <p className="text-ink/40 font-serif italic">No analysis history found.</p>
+                  <div>
+                    <p className="font-serif italic text-ink">該月份尚無分析紀錄</p>
+                    <p className="mt-2 text-xs font-bold uppercase tracking-widest text-ink/40">
+                      {formatMonthOption(selectedMonth)}
+                    </p>
+                  </div>
                 </div>
               ) : (
                 <div className="grid gap-4">
@@ -1270,7 +1354,7 @@ function AppContent() {
                       <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
                         <div className={cn(
                           "w-12 h-12 rounded-2xl flex items-center justify-center text-white shrink-0",
-                          item.mode === 'A' ? "bg-ink" : "bg-accent"
+                          item.mode === 'A' ? "bg-ink" : "bg-ink"
                         )}>
                           {item.mode === 'A' ? <Play className="w-5 h-5" /> : <Timer className="w-5 h-5" />}
                         </div>
@@ -1325,7 +1409,7 @@ function AppContent() {
                 onClick={() => setMode('B')}
                 className="group bg-white border border-ink/10 p-8 text-left hover:border-accent/70 transition-all rounded-[2rem] shadow-xl shadow-ink/5 hover:shadow-2xl hover:shadow-accent/10 hover:-translate-y-1"
               >
-                <div className="w-12 h-12 sm:w-14 sm:h-14 bg-accent text-white rounded-full flex items-center justify-center mb-6 group-hover:bg-ink transition-colors">
+                <div className="w-12 h-12 sm:w-14 sm:h-14 bg-ink text-white rounded-full flex items-center justify-center mb-6 group-hover:bg-accent transition-colors">
                   <Timer className="w-5 h-5 sm:w-6 sm:h-6" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold mb-2 uppercase tracking-tight font-serif italic text-ink">模式 B：成績分析與課表</h2>
@@ -1730,7 +1814,7 @@ function AppContent() {
                   <div className="flex justify-center pt-12">
                     <button 
                       onClick={resetMode}
-                      className="px-10 py-4 bg-accent text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-ink transition-all shadow-lg shadow-accent/20"
+                      className="px-10 py-4 bg-ink text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-accent transition-all shadow-lg shadow-ink/20"
                     >
                       New Analysis
                     </button>
@@ -1748,7 +1832,7 @@ function AppContent() {
           <div className="absolute top-0 right-0 w-64 h-64 bg-accent/5 rounded-full -mr-32 -mt-32 blur-3xl" />
           <div className="relative z-10">
             <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-6">
-              <div className="bg-accent p-1 rounded-xl w-fit">
+              <div className="bg-ink p-1 rounded-xl w-fit">
                 <Dumbbell className="text-white w-4 h-4" />
               </div>
               <h2 className="text-lg sm:text-2xl font-bold uppercase tracking-tight font-serif italic text-ink">
