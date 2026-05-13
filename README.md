@@ -708,3 +708,11 @@ npm.cmd run lint
 - Added `handleSeek` so clicking a time tag seeks the report video to the target second and starts playback automatically.
 - Personal `reports` writes now include `videoUrl` so future history entries can reopen with synced playback.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-13 Report Privacy Alert and Timestamp Parser Polish
+
+- Added a report-page info alert explaining that uploaded videos are auto-destroyed after 24 hours while AI diagnosis and coach guidance records are preserved.
+- Replaced the prior timestamp renderer with `parseTextWithTimestamps(text, onSeek)` using `/\[(\d{2}:\d{2})\]/g`.
+- Updated timestamp buttons to use explicit brand colors `#93B7BE` and `#2D3047`, rounded corners, and tactile hover/active feedback.
+- Kept timestamp rendering wired across diagnosis, advice, metrics, training plan, growth advice, and missing-data text.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
