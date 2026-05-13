@@ -8,6 +8,15 @@ export interface KeypointData {
 
 export type AnalysisMode = 'A' | 'B';
 
+export interface AthleteProfile {
+  gender: 'M' | 'F' | '';
+  birthDate: string;
+  modeAUsage: {
+    count: number;
+    month: string;
+  };
+}
+
 export interface AnalysisReport {
   mode: AnalysisMode;
   // Mode A Fields

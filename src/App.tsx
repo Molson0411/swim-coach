@@ -28,10 +28,11 @@ import {
   X,
   ShieldCheck,
   PencilLine,
-  CheckCircle2
+  CheckCircle2,
+  Lock
 } from 'lucide-react';
 import { analyzeSwim, updateAnalysisReportStatus, uploadVideoForAnalysis } from './services/gemini';
-import { AnalysisReport, AnalysisMode } from './types';
+import { AnalysisReport, AnalysisMode, AthleteProfile } from './types';
 import { cn } from './lib/utils';
 import { Toaster, toast } from 'sonner';
 import {
@@ -148,10 +149,35 @@ type RaceEntryState = {
   strokeCounts: string[];
 };
 
-type AthleteProfile = {
-  gender: 'M' | 'F' | '';
-  birthDate: string;
-};
+type SubscriptionPlan = 'free' | 'pro';
+
+const MODE_A_FREE_LIMIT = 3;
+
+function createDefaultAthleteProfile(): AthleteProfile {
+  return {
+    gender: '',
+    birthDate: '',
+    modeAUsage: { count: 0, month: '' },
+  };
+}
+
+function normalizeModeAUsage(value: unknown): AthleteProfile['modeAUsage'] {
+  if (
+    value &&
+    typeof value === 'object' &&
+    'count' in value &&
+    'month' in value &&
+    typeof (value as { count?: unknown }).count === 'number' &&
+    typeof (value as { month?: unknown }).month === 'string'
+  ) {
+    return {
+      count: Math.max(0, (value as { count: number }).count),
+      month: (value as { month: string }).month,
+    };
+  }
+
+  return { count: 0, month: '' };
+}
 
 function extractDistanceFromEvent(event: string) {
   const match = event.match(/(\d+)\s*公尺/);
@@ -951,6 +977,52 @@ function AthleteProfileModal({
   );
 }
 
+function PaywallModal({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="absolute inset-0 bg-[#0a0f1c]/70 backdrop-blur-sm"
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 18 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 18 }}
+            className="relative w-full max-w-sm rounded-[2rem] border border-[#B8860B]/30 bg-white p-7 text-center shadow-2xl"
+          >
+            <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#5A1F2E] text-[#F8D36B] shadow-lg shadow-[#5A1F2E]/20">
+              <Lock className="h-6 w-6" />
+            </div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-[#B8860B]">Pro Access</p>
+            <h3 className="mt-2 text-2xl font-bold italic font-serif text-ink">升級 Pro 版解鎖完整科學課表</h3>
+            <p className="mt-3 text-sm leading-relaxed text-ink/60">
+              免費方案可查看效能數據與每月 3 次 AI 動作診斷。升級後即可解鎖完整週期化課表與更多診斷額度。
+            </p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="mt-6 w-full rounded-full bg-[#5A1F2E] px-5 py-4 text-[11px] font-bold uppercase tracking-widest text-[#F8D36B] shadow-lg shadow-[#5A1F2E]/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#2D3047] hover:text-white hover:shadow-lg active:scale-95"
+            >
+              升級 Pro
+            </button>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 function ConfirmModal({ isOpen, title, message, onConfirm, onCancel }: { 
   isOpen: boolean, 
   title: string, 
@@ -1060,6 +1132,7 @@ function AppContent() {
     '正在生成技術診斷報告...'
   ];
   const [user, setUser] = useState<User | null>(null);
+  const [subscriptionPlan, setSubscriptionPlan] = useState<SubscriptionPlan>('free');
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
@@ -1089,8 +1162,9 @@ function AppContent() {
 
   // Mode B Inputs
   const [raceEntries, setRaceEntries] = useState<RaceEntryState[]>(() => [createRaceEntry()]);
-  const [athleteProfile, setAthleteProfile] = useState<AthleteProfile>({ gender: '', birthDate: '' });
+  const [athleteProfile, setAthleteProfile] = useState<AthleteProfile>(() => createDefaultAthleteProfile());
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [isProfileLoading, setIsProfileLoading] = useState(false);
   const [isProfileSaving, setIsProfileSaving] = useState(false);
   const [pendingModeBAfterProfile, setPendingModeBAfterProfile] = useState(false);
@@ -1142,6 +1216,12 @@ function AppContent() {
   const modeBMetrics = report?.performanceMetrics || report?.metrics;
 
   const isAthleteProfileComplete = Boolean(athleteProfile.gender && athleteProfile.birthDate);
+  const currentMonthKey = toMonthKey(new Date());
+  const normalizedModeAUsage = athleteProfile.modeAUsage.month === currentMonthKey
+    ? athleteProfile.modeAUsage
+    : { count: 0, month: currentMonthKey };
+  const remainingModeAFreeUses = Math.max(0, MODE_A_FREE_LIMIT - normalizedModeAUsage.count);
+  const isFreePlan = subscriptionPlan === 'free';
 
   const handleSelectModeB = () => {
     if (!isAthleteProfileComplete) {
@@ -1170,6 +1250,7 @@ function AppContent() {
       await setDoc(doc(db, 'users', user.uid), {
         gender: profile.gender,
         birthDate: profile.birthDate,
+        modeAUsage: profile.modeAUsage || athleteProfile.modeAUsage,
         updatedAt: serverTimestamp(),
       }, { merge: true });
       setAthleteProfile(profile);
@@ -1278,13 +1359,16 @@ function AppContent() {
             const data = snapshot.data();
             const cloudGender = data?.gender;
             const cloudBirthDate = data?.birthDate;
+            const cloudModeAUsage = normalizeModeAUsage(data?.modeAUsage);
+            const cloudSubscriptionPlan: SubscriptionPlan = data?.subscriptionPlan === 'pro' ? 'pro' : 'free';
+            setSubscriptionPlan(cloudSubscriptionPlan);
 
             if ((cloudGender === 'M' || cloudGender === 'F') && typeof cloudBirthDate === 'string' && cloudBirthDate) {
-              setAthleteProfile({ gender: cloudGender, birthDate: cloudBirthDate });
+              setAthleteProfile({ gender: cloudGender, birthDate: cloudBirthDate, modeAUsage: cloudModeAUsage });
               setShowProfileModal(false);
               setPendingModeBAfterProfile(false);
             } else {
-              setAthleteProfile({ gender: '', birthDate: '' });
+              setAthleteProfile({ ...createDefaultAthleteProfile(), modeAUsage: cloudModeAUsage });
               setPendingModeBAfterProfile(false);
               setShowProfileModal(true);
             }
@@ -1300,8 +1384,10 @@ function AppContent() {
             setIsProfileLoading(false);
           });
       } else {
-        setAthleteProfile({ gender: '', birthDate: '' });
+        setAthleteProfile(createDefaultAthleteProfile());
+        setSubscriptionPlan('free');
         setShowProfileModal(false);
+        setShowPaywallModal(false);
         setIsProfileLoading(false);
         setIsProfileSaving(false);
         setPendingModeBAfterProfile(false);
@@ -1451,6 +1537,21 @@ function AppContent() {
       toast.error('請填寫游泳項目 (例如：50公尺自由式)');
       return;
     }
+    if (mode === 'A' && isFreePlan) {
+      if (normalizedModeAUsage.month !== athleteProfile.modeAUsage.month && user) {
+        const resetProfile = { ...athleteProfile, modeAUsage: normalizedModeAUsage };
+        setAthleteProfile(resetProfile);
+        await setDoc(doc(db, 'users', user.uid), {
+          modeAUsage: normalizedModeAUsage,
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      }
+
+      if (normalizedModeAUsage.count >= MODE_A_FREE_LIMIT) {
+        setShowPaywallModal(true);
+        return;
+      }
+    }
     if (mode === 'B') {
       if (!isAthleteProfileComplete) {
         console.warn('[Mode B Profile] 缺少泳者生理檔案，開啟資料收集彈窗');
@@ -1544,6 +1645,18 @@ function AppContent() {
           console.error('[前端上傳錯誤]:', err);
           handleFirestoreError(err, OperationType.CREATE, 'reports');
         }
+      }
+
+      if (mode === 'A' && isFreePlan && user) {
+        const nextModeAUsage = {
+          month: currentMonthKey,
+          count: normalizedModeAUsage.count + 1,
+        };
+        setAthleteProfile((current) => ({ ...current, modeAUsage: nextModeAUsage }));
+        await setDoc(doc(db, 'users', user.uid), {
+          modeAUsage: nextModeAUsage,
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
       }
 
       setProgress(100);
@@ -1749,6 +1862,10 @@ function AppContent() {
           setShowProfileModal(false);
           setPendingModeBAfterProfile(false);
         }}
+      />
+      <PaywallModal
+        isOpen={showPaywallModal}
+        onClose={() => setShowPaywallModal(false)}
       />
       {/* Header */}
       <header className="border-b border-ink/10 p-4 md:p-6 flex flex-col sm:flex-row justify-between items-center bg-white/80 backdrop-blur-md sticky top-0 z-50 gap-4 sm:gap-0">
@@ -2215,6 +2332,11 @@ function AppContent() {
                           )}
                         />
                       </div>
+                      {isFreePlan && (
+                        <p className="rounded-2xl bg-accent/5 px-4 py-3 text-xs font-bold text-[#2D3047]">
+                          本月剩餘免費診斷次數：{remainingModeAFreeUses} / {MODE_A_FREE_LIMIT}
+                        </p>
+                      )}
                     </div>
                   ) : (
                     <div className="space-y-8">
@@ -2589,11 +2711,14 @@ function AppContent() {
                       </section>
 
                       {report.trainingPlan && (
-                        <section className="space-y-5">
+                        <section className={cn("space-y-5", isFreePlan && "relative overflow-hidden rounded-[2rem]")}>
                           <h3 className="text-[10px] sm:text-xs uppercase tracking-[0.2em] font-bold flex items-center gap-2 text-[#2D3047]">
                             <Dumbbell className="w-4 h-4 text-[#93B7BE]" /> Scientific Training Plan
                           </h3>
-                          <div className="grid md:grid-cols-2 gap-4">
+                          <div className={cn(
+                            "grid md:grid-cols-2 gap-4",
+                            isFreePlan && "filter blur-[6px] pointer-events-none select-none opacity-40"
+                          )}>
                             <div className="bg-white border border-ink/10 p-6 rounded-[2rem] shadow-sm">
                               <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-2xl bg-[#2D3047] text-white">
                                 <Waves className="w-5 h-5" />
@@ -2623,6 +2748,21 @@ function AppContent() {
                               <p className="text-xs sm:text-sm leading-relaxed text-ink/75"><TimestampText text={report.trainingPlan.coolDown} onSeek={handleSeek} /></p>
                             </div>
                           </div>
+                          {isFreePlan && (
+                            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-[2rem] bg-[#0a0f1c]/60 p-6 text-center text-white">
+                              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#5A1F2E] text-[#F8D36B] shadow-lg shadow-black/20">
+                                <Lock className="h-6 w-6" />
+                              </div>
+                              <h4 className="text-xl font-bold italic font-serif">升級 Pro 版解鎖完整科學課表</h4>
+                              <button
+                                type="button"
+                                onClick={() => setShowPaywallModal(true)}
+                                className="mt-5 rounded-full bg-[#F8D36B] px-6 py-3 text-[11px] font-bold uppercase tracking-widest text-[#5A1F2E] shadow-lg shadow-black/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-white active:scale-95"
+                              >
+                                升級 Pro
+                              </button>
+                            </div>
+                          )}
                         </section>
                       )}
                     </div>

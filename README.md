@@ -787,3 +787,13 @@ npm.cmd run lint
 - Reworked `Save & Continue` to persist profile changes with `setDoc(..., { merge: true })`, show `泳者檔案已更新`, and only proceed to Mode B when the modal was opened from the Mode B entry.
 - Added a Header `Edit Profile` icon button next to History and Logout so users can edit their cloud-backed profile anytime.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-13 Mode A Quota and Mode B Soft Paywall
+
+- Extended `AthleteProfile` with `modeAUsage: { count, month }` and hydrate it from `users/{uid}` alongside gender and birth date.
+- Added a free-plan Mode A quota of 3 diagnoses per month, including automatic month reset and Firestore `modeAUsage` sync.
+- Mode A now blocks free users after the monthly limit and opens the paywall modal; successful analyses increment usage only after the API returns.
+- Added a small Mode A form hint showing `本月剩餘免費診斷次數：X / 3` for free users.
+- Added a Mode B soft paywall: performance metrics remain visible, while the full scientific training plan is blurred and covered for free users.
+- Added a paywall modal and a training-plan overlay with a lock icon, `升級 Pro 版解鎖完整科學課表`, and an `升級 Pro` button.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
