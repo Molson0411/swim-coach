@@ -85,6 +85,37 @@ type AdminReviewRecord = {
 
 const trainingCalendarMockData = createTrainingCalendarMockData();
 
+const tutorialSteps = [
+  {
+    title: '綁定專屬帳戶',
+    description: '系統需要為您保存專屬的分析報告與訓練紀錄，請先使用 Google 帳戶進行安全登入。',
+    kind: 'login',
+  },
+  {
+    title: '認識雙軌系統',
+    description: '本系統提供兩大核心功能：【模式 A：AI 動作診斷】與【模式 B：科學訓練課表】。您可依據當下需求自由切換。',
+    kind: 'text',
+  },
+  {
+    title: '模式 A 操作指南',
+    items: [
+      '上傳您的游泳影片。',
+      '透過時空標籤精準鎖定目標人物。',
+      '獲取帶有時間軸跳轉互動的 AI 深度診斷報告。',
+    ],
+    kind: 'list',
+  },
+  {
+    title: '模式 B 操作指南',
+    items: [
+      '選擇指定的訓練學員。',
+      '設定訓練週期與強化目標。',
+      '由系統自動生成符合運動科學的多日訓練菜單。',
+    ],
+    kind: 'list',
+  },
+] as const;
+
 function createTrainingCalendarMockData(): TrainingCalendarRecord[] {
   const now = new Date();
   const year = now.getFullYear();
@@ -780,6 +811,8 @@ function AppContent() {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [currentStep, setCurrentStep] = useState(0);
   const [mode, setMode] = useState<AnalysisMode | null>(null);
   const [activeTab, setActiveTab] = useState<'input' | 'report' | 'history'>('input');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -858,6 +891,8 @@ function AppContent() {
     }, {})
   ), [calendarRecords]);
   const selectedCalendarRecords = selectedCalendarDate ? recordsByDate[selectedCalendarDate] || [] : [];
+  const tutorialStep = tutorialSteps[currentStep];
+  const isLastTutorialStep = currentStep === tutorialSteps.length - 1;
 
   const handlePlaybackRateChange = (rate: number) => {
     setPlaybackRate(rate);
@@ -879,9 +914,20 @@ function AppContent() {
     });
   };
 
+  const handleCloseTutorial = () => {
+    setShowTutorial(false);
+    localStorage.setItem('hasSeenTutorial', 'true');
+  };
+
   useEffect(() => {
     setSelectedCalendarDate(null);
   }, [selectedMonth]);
+
+  useEffect(() => {
+    if (!localStorage.getItem('hasSeenTutorial')) {
+      setShowTutorial(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isAnalyzing) {
@@ -1188,6 +1234,90 @@ function AppContent() {
         onConfirm={handleConfirmDelete}
         onCancel={() => setConfirmDelete({ isOpen: false, id: '' })}
       />
+      {showTutorial && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center">
+          <div className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full mx-4">
+            <div className="mb-6">
+              <p className="text-[10px] uppercase tracking-[0.24em] font-bold text-[#93B7BE] mb-2">
+                SwimFlow AI Onboarding
+              </p>
+              <h2 className="text-2xl font-bold text-[#2D3047] font-serif italic">
+                {tutorialStep.title}
+              </h2>
+            </div>
+
+            {'description' in tutorialStep && (
+              <p className="text-sm leading-relaxed text-ink/70">
+                {tutorialStep.description}
+              </p>
+            )}
+
+            {tutorialStep.kind === 'login' && (
+              <button
+                type="button"
+                onClick={handleSignIn}
+                disabled={!isAuthReady || isSigningIn}
+                className="mt-5 w-full rounded-full bg-[#2D3047] px-5 py-3 text-[11px] font-bold uppercase tracking-widest text-white hover:bg-[#93B7BE] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSigningIn ? 'Signing in...' : '使用 Google 帳戶登入'}
+              </button>
+            )}
+
+            {'items' in tutorialStep && (
+              <ul className="mt-1 list-decimal space-y-3 pl-5 text-sm leading-relaxed text-ink/70">
+                {tutorialStep.items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
+
+            <div className="mt-8 flex items-center justify-center gap-2">
+              {tutorialSteps.map((step, index) => (
+                <span
+                  key={step.title}
+                  className={cn(
+                    "h-2.5 w-2.5 rounded-full transition-all duration-200",
+                    index === currentStep ? "bg-[#2D3047] scale-110" : "bg-slate-200"
+                  )}
+                />
+              ))}
+            </div>
+
+            <div className="mt-8 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={handleCloseTutorial}
+                className="text-[11px] font-bold uppercase tracking-widest text-ink/45 hover:text-[#2D3047] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:scale-95"
+              >
+                略過教學
+              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCurrentStep((step) => Math.max(step - 1, 0))}
+                  disabled={currentStep === 0}
+                  className="rounded-full bg-[#2D3047] px-4 py-2 text-[11px] font-bold uppercase tracking-widest text-white hover:bg-[#93B7BE] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  上一步
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isLastTutorialStep) {
+                      handleCloseTutorial();
+                      return;
+                    }
+                    setCurrentStep((step) => Math.min(step + 1, tutorialSteps.length - 1));
+                  }}
+                  className="rounded-full bg-[#2D3047] px-4 py-2 text-[11px] font-bold uppercase tracking-widest text-white hover:bg-[#93B7BE] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:scale-95"
+                >
+                  {isLastTutorialStep ? '開始使用' : '下一步'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <header className="border-b border-ink/10 p-4 md:p-6 flex flex-col sm:flex-row justify-between items-center bg-white/80 backdrop-blur-md sticky top-0 z-50 gap-4 sm:gap-0">
         <div className="flex items-center gap-3 cursor-pointer w-full sm:w-auto" onClick={resetMode} role="button" tabIndex={0}>
