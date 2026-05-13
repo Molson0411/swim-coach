@@ -753,3 +753,11 @@ npm.cmd run lint
 - Clarified that the system's `efficiencyAnalysis` should be written into `performanceMetrics.analysis` to preserve the existing JSON schema.
 - Confirmed `historicalFindings` remains formatted and passed directly into the Mode B Gemini prompt.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-13 Mode B 41-Point Technical Evaluation Matrix
+
+- Added `MODE_B_TECHNICAL_EVALUATION_PROMPT` to both `api/analyze.ts` and `server/gemini.ts`.
+- Injected the full four-stroke micro technical evaluation standard with 41 checkpoints: freestyle 11, backstroke 10, breaststroke 10, and butterfly 10.
+- Instructed Mode B analysis to compare athlete data against the standard movement models when producing `performanceMetrics.analysis` and `growthAdvice`.
+- Preserved the existing JSON output schema, fluid-dynamics prompt, advanced drill mapping, and `historicalFindings` linkage rules.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
