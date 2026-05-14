@@ -43,7 +43,7 @@ export class AnalyzeApiError extends Error {
   }
 }
 
-type StorageUploadedFile = {
+export type StorageUploadedFile = {
   storagePath: string;
   bucket: string;
   mimeType: string;
@@ -140,7 +140,10 @@ export async function updateAnalysisReportStatus(
   return response.json() as Promise<{ ok: boolean; reportId: string; status: AnalysisReportStatus }>;
 }
 
-export async function uploadVideoForAnalysis(file: File): Promise<StorageUploadedFile> {
+export async function uploadVideoForAnalysis(
+  file: File,
+  onProgress?: (progress: number) => void
+): Promise<StorageUploadedFile> {
   try {
     console.log("[前端追蹤] 2. 目前選擇的檔案狀態:", file);
     if (!file) {
@@ -151,14 +154,14 @@ export async function uploadVideoForAnalysis(file: File): Promise<StorageUploade
     const { user } = await requireUserWithCredits();
     const mimeType = file.type || "video/mp4";
     const storagePath = [
-      "uploads",
+      "analysis_videos",
       user.uid,
-      `${Date.now()}-${crypto.randomUUID()}-${sanitizeStorageFileName(file.name)}`,
+      `${Date.now()}_${sanitizeStorageFileName(file.name)}`,
     ].join("/");
     const uploadRef = ref(storage, storagePath);
 
     console.log("[前端追蹤] 3. 開始上傳至 Firebase Storage...");
-    const uploadSnapshot = await uploadFileToFirebaseStorage({ file, mimeType, uploadRef });
+    const uploadSnapshot = await uploadFileToFirebaseStorage({ file, mimeType, uploadRef, onProgress });
     const downloadURL = await getDownloadURL(uploadSnapshot.ref);
     if (!downloadURL.trim()) {
       throw new Error("Firebase Storage returned an empty video download URL.");
@@ -199,13 +202,27 @@ async function uploadFileToFirebaseStorage(input: {
   file: File;
   mimeType: string;
   uploadRef: ReturnType<typeof ref>;
+  onProgress?: (progress: number) => void;
 }) {
   return new Promise<UploadTaskSnapshot>((resolve, reject) => {
     const task = uploadBytesResumable(input.uploadRef, input.file, {
       contentType: input.mimeType,
     });
 
-    task.on("state_changed", undefined, reject, () => resolve(task.snapshot));
+    task.on(
+      "state_changed",
+      (snapshot) => {
+        const progress = snapshot.totalBytes > 0
+          ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+          : 0;
+        input.onProgress?.(progress);
+      },
+      reject,
+      () => {
+        input.onProgress?.(100);
+        resolve(task.snapshot);
+      }
+    );
   });
 }
 

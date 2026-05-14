@@ -31,7 +31,7 @@ import {
   CheckCircle2,
   Lock
 } from 'lucide-react';
-import { AnalyzeApiError, analyzeSwim, updateAnalysisReportStatus, uploadVideoForAnalysis } from './services/gemini';
+import { AnalyzeApiError, analyzeSwim, updateAnalysisReportStatus, uploadVideoForAnalysis, type StorageUploadedFile } from './services/gemini';
 import { AnalysisReport, AnalysisMode, AthleteProfile } from './types';
 import { cn } from './lib/utils';
 import { Toaster, toast } from 'sonner';
@@ -1272,6 +1272,10 @@ function AppContent() {
   // Mode A Inputs
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadedModeAVideo, setUploadedModeAVideo] = useState<StorageUploadedFile | null>(null);
   const [textInput, setTextInput] = useState('');
   const [eventA, setEventA] = useState('');
   const [startTime, setStartTime] = useState('');
@@ -1634,6 +1638,31 @@ function AppContent() {
       }
       setVideoFile(file);
       setVideoPreview(URL.createObjectURL(file));
+      setVideoUrl(null);
+      setUploadedModeAVideo(null);
+      setUploadProgress(0);
+      void uploadSelectedModeAVideo(file);
+    }
+  };
+
+  const uploadSelectedModeAVideo = async (file: File) => {
+    try {
+      setIsUploading(true);
+      setUploadProgress(0);
+      const uploadedVideo = await uploadVideoForAnalysis(file, setUploadProgress);
+      setUploadedModeAVideo(uploadedVideo);
+      setVideoUrl(uploadedVideo.downloadURL);
+      toast.success('影片已上傳完成');
+      return uploadedVideo;
+    } catch (error) {
+      console.error('[前端上傳錯誤]:', error);
+      setUploadedModeAVideo(null);
+      setVideoUrl(null);
+      setUploadProgress(0);
+      toast.error(error instanceof Error ? error.message : '影片上傳失敗，請稍後再試。');
+      return null;
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -1689,6 +1718,11 @@ function AppContent() {
       }
     }
 
+    if (mode === 'A' && isUploading) {
+      toast.info('影片仍在上傳中，請稍候。');
+      return;
+    }
+
     setIsAnalyzing(true);
     setProgress(0);
     
@@ -1707,8 +1741,8 @@ function AppContent() {
       }
 
       console.log('[前端追蹤] 3. 開始上傳至 Firebase Storage...');
-      const uploadedVideo = mode === 'A' && videoFile
-        ? await uploadVideoForAnalysis(videoFile)
+      const uploadedVideo = mode === 'A'
+        ? uploadedModeAVideo || (videoFile ? await uploadSelectedModeAVideo(videoFile) : null)
         : null;
       const modeBStroke = mode === 'B' ? extractStrokeFromEvent(raceEntries[0]?.event) : '';
       const historicalFindings = mode === 'B' && user
@@ -1724,7 +1758,7 @@ function AppContent() {
         videoStoragePath: uploadedVideo?.storagePath,
         videoStorageBucket: uploadedVideo?.bucket,
         videoMimeType: uploadedVideo?.mimeType,
-        videoUrl: uploadedVideo?.downloadURL,
+        videoUrl: uploadedVideo?.downloadURL || videoUrl || undefined,
         startTime: mode === 'A' ? startTime.trim() || undefined : undefined,
         endTime: mode === 'A' ? endTime.trim() || undefined : undefined,
         targetDescription: mode === 'A' ? targetDescription.trim() || undefined : undefined,
@@ -1759,7 +1793,7 @@ function AppContent() {
             createdAt: serverTimestamp(),
             event: mode === 'A' ? eventA : raceEntries[0].event,
             athleteProfile: mode === 'B' ? athleteProfile : null,
-            videoUrl: uploadedVideo?.downloadURL || null
+            videoUrl: uploadedVideo?.downloadURL || videoUrl || null
           });
           console.log('[前端追蹤] 8. 個人 reports 歷史紀錄寫入完成');
         } catch (err) {
@@ -1783,7 +1817,7 @@ function AppContent() {
       setProgress(100);
       setTimeout(() => {
         setReport(normalizedResult);
-        setCurrentReportVideoUrl(uploadedVideo?.downloadURL || null);
+        setCurrentReportVideoUrl(uploadedVideo?.downloadURL || videoUrl || null);
         setActiveTab('report');
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }, 500);
@@ -1809,6 +1843,10 @@ function AppContent() {
     setActiveTab('input');
     setVideoFile(null);
     setVideoPreview(null);
+    setVideoUrl(null);
+    setUploadedModeAVideo(null);
+    setUploadProgress(0);
+    setIsUploading(false);
     setTextInput('');
     setEventA('');
     setStartTime('');
@@ -2390,14 +2428,34 @@ function AppContent() {
                           ) : (
                             <>
                               <Upload className="w-8 h-8 text-accent opacity-50" />
-                              <p className="text-xs font-bold uppercase tracking-widest opacity-50 mt-2 px-4 text-center">Drop video or click to upload</p>
+                              <p className="text-xs font-bold uppercase tracking-widest opacity-50 mt-2 px-4 text-center">選擇游泳影片</p>
+                              <p className="mt-1 px-4 text-center text-[10px] font-medium text-ink/40">MP4 / MOV</p>
                             </>
+                          )}
+                          {isUploading && (
+                            <div className="absolute inset-x-6 bottom-6 rounded-2xl bg-white/90 p-3 shadow-lg backdrop-blur-md">
+                              <div className="mb-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-[#2D3047]">
+                                <span>Uploading</span>
+                                <span>{uploadProgress}%</span>
+                              </div>
+                              <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                                <div
+                                  className="h-full rounded-full bg-[#93B7BE] transition-all duration-200"
+                                  style={{ width: `${uploadProgress}%` }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                          {!isUploading && videoUrl && (
+                            <div className="absolute bottom-6 left-6 rounded-full bg-[#2D3047] px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-white shadow-lg">
+                              Upload Complete
+                            </div>
                           )}
                           <input 
                             type="file" 
                             ref={fileInputRef}
                             onChange={handleFileChange}
-                            accept="video/*"
+                            accept="video/mp4,video/quicktime"
                             disabled={!isAuthenticated}
                             className="hidden"
                           />

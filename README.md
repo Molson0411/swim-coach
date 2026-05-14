@@ -880,3 +880,12 @@ npm.cmd run lint
 - Improved readability with `text-slate-100`, `placeholder-slate-400`, `text-base`, and `font-medium`.
 - Added mint focus feedback with `focus:border-[#d5f4d8]` and `focus:ring-1 focus:ring-[#d5f4d8]`.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-14 Mode A Firebase Storage Upload UI
+
+- Confirmed `src/firebase.ts` exports the Firebase Storage instance via `getStorage(app)`.
+- Extended `uploadVideoForAnalysis` with upload progress callbacks and changed the Storage path to `analysis_videos/{uid}/{timestamp}_{fileName}`.
+- Added Mode A upload state in `App.tsx`: `videoFile`, `uploadProgress`, `videoUrl`, `isUploading`, and uploaded file metadata.
+- Mode A now uploads immediately after file selection, displays a progress bar and percentage, and shows an upload-complete badge once `downloadURL` is available.
+- Analysis requests and Firestore `reports` writes now reuse the uploaded `videoUrl` instead of re-uploading the file.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
