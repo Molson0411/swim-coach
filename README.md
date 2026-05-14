@@ -822,3 +822,11 @@ npm.cmd run lint
 - Added cross-mode instructions requiring Mode B efficiency analysis to connect race data with historical defects, and requiring linked corrective drills to carry `(Ref: Mode A)`.
 - Added anti-hallucination and tag-isolation constraints: Mode B must not invent video timestamps, and `(Ref: Mode A)` may appear only in `trainingPlan.drills`.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-14 Mode B Stroke-Scoped History Lookup
+
+- Added `extractStrokeFromEvent` in `App.tsx` to derive `自由式`, `蛙式`, `仰式`, or `蝶式` from the selected Mode B race event.
+- Updated the latest Mode A Firestore lookup to include `where("stroke", "==", extractedStroke)` so freestyle analysis cannot reuse breaststroke history.
+- Applied the same stroke filter to the local `history` fallback lookup.
+- Added `whitespace-pre-wrap` to the Mode B `Efficiency Analysis` and shared `Coach's Growth Advice` text containers so AI paragraph breaks render correctly.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

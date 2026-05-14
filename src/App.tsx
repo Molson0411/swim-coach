@@ -295,22 +295,46 @@ function extractModeAFindingLabels(report: AnalysisReport | undefined) {
     .slice(0, 5);
 }
 
+function extractStrokeFromEvent(eventName?: string) {
+  const normalized = eventName?.trim().toLowerCase() || '';
+  const strokeMap = [
+    { stroke: '自由式', keywords: ['自由式', '捷泳', 'freestyle', 'free'] },
+    { stroke: '蛙式', keywords: ['蛙式', 'breaststroke', 'breast'] },
+    { stroke: '仰式', keywords: ['仰式', '背泳', 'backstroke', 'back'] },
+    { stroke: '蝶式', keywords: ['蝶式', 'butterfly', 'fly'] },
+  ];
+
+  return strokeMap.find(({ keywords }) => keywords.some((keyword) => normalized.includes(keyword)))?.stroke || '';
+}
+
 function getLatestModeAFindingsFromHistory(
-  reports: (AnalysisReport & { id: string, createdAt: any, event?: string, videoUrl?: string })[]
+  reports: (AnalysisReport & { id: string, createdAt: any, event?: string, videoUrl?: string })[],
+  stroke: string
 ) {
   const latestModeA = reports
-    .filter((item) => item.mode === 'A')
+    .filter((item) => item.mode === 'A' && (!stroke || item.stroke === stroke))
     .sort((a, b) => (getReportCreatedDate(b)?.getTime() || 0) - (getReportCreatedDate(a)?.getTime() || 0))[0];
 
   return extractModeAFindingLabels(latestModeA);
 }
 
-async function fetchLatestModeAFindings(userId: string, fallbackHistory: (AnalysisReport & { id: string, createdAt: any, event?: string, videoUrl?: string })[]) {
+async function fetchLatestModeAFindings(
+  userId: string,
+  stroke: string,
+  fallbackHistory: (AnalysisReport & { id: string, createdAt: any, event?: string, videoUrl?: string })[]
+) {
+  if (!stroke) {
+    console.warn('[跨模式聯動] 無法從 Mode B 賽事項目萃取泳姿，略過 Mode A 歷史檢索。');
+    return [];
+  }
+
   try {
+    console.log('[跨模式聯動] 查詢最新 Mode A 歷史診斷，泳姿:', stroke);
     const snapshot = await getDocs(query(
       collection(db, 'reports'),
       where('uid', '==', userId),
       where('mode', '==', 'A'),
+      where('stroke', '==', stroke),
       orderBy('createdAt', 'desc'),
       limit(1)
     ));
@@ -323,7 +347,7 @@ async function fetchLatestModeAFindings(userId: string, fallbackHistory: (Analys
     console.warn('[跨模式聯動] 無法從 Firestore 讀取最新 Mode A 診斷，改用目前 history 狀態:', error);
   }
 
-  return getLatestModeAFindingsFromHistory(fallbackHistory);
+  return getLatestModeAFindingsFromHistory(fallbackHistory, stroke);
 }
 
 function toMonthKey(date: Date) {
@@ -1590,8 +1614,9 @@ function AppContent() {
       const uploadedVideo = mode === 'A' && videoFile
         ? await uploadVideoForAnalysis(videoFile)
         : null;
+      const modeBStroke = mode === 'B' ? extractStrokeFromEvent(raceEntries[0]?.event) : '';
       const historicalFindings = mode === 'B' && user
-        ? await fetchLatestModeAFindings(user.uid, history)
+        ? await fetchLatestModeAFindings(user.uid, modeBStroke, history)
         : [];
       if (mode === 'B') {
         console.log('[跨模式聯動] 送入 Mode B 的歷史 Mode A 瑕疵:', historicalFindings);
@@ -2705,7 +2730,7 @@ function AppContent() {
                         <h3 className="text-sm sm:text-xs uppercase tracking-[0.2em] font-bold mb-4 flex items-center gap-2 text-accent">
                           <FileText className="w-4 h-4" /> Efficiency Analysis
                         </h3>
-                        <p className="text-lg sm:text-2xl leading-relaxed text-ink/80 font-serif italic">
+                        <p className="text-lg sm:text-2xl leading-relaxed text-ink/80 font-serif italic whitespace-pre-wrap">
                           {"\""}<TimestampText text={modeBMetrics.analysis} onSeek={handleSeek} />{"\""}
                         </p>
                       </section>
@@ -2772,7 +2797,7 @@ function AppContent() {
                   <section className="border-t border-ink/10 pt-8 sm:pt-12 mt-8 sm:mt-12">
                     <h3 className="text-[10px] sm:text-xs uppercase tracking-[0.2em] font-bold mb-5 sm:mb-8 text-accent">Coach's Growth Advice</h3>
                     <div className="bg-accent/5 p-6 sm:p-10 rounded-[2rem] sm:rounded-[2.5rem] border border-accent/10">
-                      <p className="text-base sm:text-xl leading-relaxed italic font-serif text-ink/80">
+                      <p className="text-base sm:text-xl leading-relaxed italic font-serif text-ink/80 whitespace-pre-wrap">
                         <TimestampText text={report.growthAdvice} onSeek={handleSeek} />
                       </p>
                     </div>
