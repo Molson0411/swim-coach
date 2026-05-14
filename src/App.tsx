@@ -31,7 +31,7 @@ import {
   CheckCircle2,
   Lock
 } from 'lucide-react';
-import { analyzeSwim, updateAnalysisReportStatus, uploadVideoForAnalysis } from './services/gemini';
+import { AnalyzeApiError, analyzeSwim, updateAnalysisReportStatus, uploadVideoForAnalysis } from './services/gemini';
 import { AnalysisReport, AnalysisMode, AthleteProfile } from './types';
 import { cn } from './lib/utils';
 import { Toaster, toast } from 'sonner';
@@ -1790,6 +1790,11 @@ function AppContent() {
     } catch (error) {
       console.error('[前端上傳錯誤]:', error);
       console.error('Analysis failed:', error);
+      if (error instanceof AnalyzeApiError && error.code === 'MISSING_PROFILE_DATA') {
+        toast.error(error.message || '請先至設定頁面完成性別設定，以利系統進行精確的 FINA 積分與生物力學分析。');
+        setShowProfileModal(true);
+        return;
+      }
       toast.error(error instanceof Error ? error.message : '分析失敗，請稍後再試。');
     } finally {
       clearInterval(progressInterval);

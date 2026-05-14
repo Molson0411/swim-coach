@@ -855,3 +855,12 @@ npm.cmd run lint
 - Updated `api/analyze.ts` to batch-calculate FINA Points for every Mode B race entry before calling Gemini, using the 2026 World Aquatics LCM base-time constants.
 - Injected a strict prompt block that forbids Gemini from recalculating or inventing FINA Points and requires direct use of backend-provided values.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-14 Mode B Profile Gender Data Flow
+
+- Expanded the frontend `/api/analyze` payload to include normalized `gender` (`Male` or `Female`) and derived `age` alongside `athleteProfile`.
+- Added an `AnalyzeApiError` class so frontend code can detect backend error codes such as `MISSING_PROFILE_DATA`.
+- Updated `api/analyze.ts` to read top-level `gender` and `age`, merge them into normalized inputs, and validate Mode B gender before Gemini or FINA calculation runs.
+- Added a dedicated `MISSING_PROFILE_DATA` response with the required profile-completion message when gender is missing or invalid.
+- Frontend catch handling now opens the Athlete Profile modal when this backend guard is triggered.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

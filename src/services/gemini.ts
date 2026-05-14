@@ -19,6 +19,8 @@ type AnalyzeInputs = {
     gender: "M" | "F" | "";
     birthDate: string;
   };
+  gender?: "Male" | "Female";
+  age?: number;
   historicalFindings?: string[];
   raceEntries?: {
     event: string;
@@ -30,6 +32,16 @@ type AnalyzeInputs = {
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+
+export class AnalyzeApiError extends Error {
+  constructor(
+    message: string,
+    public readonly code?: string
+  ) {
+    super(message);
+    this.name = "AnalyzeApiError";
+  }
+}
 
 type StorageUploadedFile = {
   storagePath: string;
@@ -55,21 +67,55 @@ export async function analyzeSwim(
   }
 
   console.log("[前端追蹤] 5. 準備呼叫 /api/analyze");
+  const gender = normalizeGenderForApi(inputs.athleteProfile?.gender);
+  const age = calculateAge(inputs.athleteProfile?.birthDate);
+  const requestInputs = {
+    ...inputs,
+    gender,
+    age,
+  };
+
   const response = await fetch(`${API_BASE_URL}/api/analyze`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ mode, inputs }),
+    body: JSON.stringify({
+      mode,
+      inputs: requestInputs,
+      gender,
+      age,
+    }),
   });
 
   if (!response.ok) {
     const error = await response.json().catch(() => null);
-    throw new Error(error?.error || "Analysis request failed.");
+    throw new AnalyzeApiError(error?.message || error?.error || "Analysis request failed.", error?.error);
   }
 
   return response.json() as Promise<AnalysisReport>;
+}
+
+function normalizeGenderForApi(gender?: "M" | "F" | "") {
+  if (gender === "M") return "Male";
+  if (gender === "F") return "Female";
+  return undefined;
+}
+
+function calculateAge(birthDate?: string) {
+  if (!birthDate) return undefined;
+  const birth = new Date(birthDate);
+  if (Number.isNaN(birth.getTime())) return undefined;
+
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+    age -= 1;
+  }
+
+  return age >= 0 ? age : undefined;
 }
 
 export async function updateAnalysisReportStatus(

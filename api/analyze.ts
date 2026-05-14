@@ -75,6 +75,8 @@ type AnalyzeInputs = {
     gender: "M" | "F" | "";
     birthDate: string;
   };
+  gender?: "Male" | "Female" | "M" | "F" | "";
+  age?: number;
   historicalFindings?: string[];
   raceEntries?: {
     event: string;
@@ -174,7 +176,8 @@ const ANALYSIS_REPORT_RESPONSE_SCHEMA = {
 class HttpError extends Error {
   constructor(
     public readonly statusCode: number,
-    message: string
+    message: string,
+    public readonly code?: string
   ) {
     super(message);
     this.name = "HttpError";
@@ -376,9 +379,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { mode, inputs } = req.body as {
+    const { mode, inputs, gender, age } = req.body as {
       mode?: AnalysisMode;
       inputs?: AnalyzeInputs;
+      gender?: AnalyzeInputs["gender"];
+      age?: number;
     };
 
     if (mode !== "A" && mode !== "B") {
@@ -386,7 +391,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const normalizedInputs = inputs || {};
+    const normalizedInputs: AnalyzeInputs = {
+      ...(inputs || {}),
+      gender: inputs?.gender || gender,
+      age: inputs?.age || age,
+    };
     validateAnalyzeRequest(mode, normalizedInputs);
 
     const report = await withTimeout(
@@ -398,6 +407,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error) {
     console.error("[後端重大錯誤] 執行失敗:", error);
     const message = error instanceof Error ? error.message : "後端處理失敗";
+    if (error instanceof HttpError) {
+      res.status(error.statusCode).json({
+        error: error.code || error.message,
+        message: error.message,
+      });
+      return;
+    }
     res.status(500).json({ error: message });
   }
 }
@@ -507,7 +523,7 @@ function normalizeAnalysisReport(report: AnalysisReport, inputs: AnalyzeInputs):
     return report;
   }
 
-  const calculatedMetrics = calculateEfficiencyMetrics(inputs.raceEntries, inputs.athleteProfile);
+  const calculatedMetrics = calculateEfficiencyMetrics(inputs.raceEntries, inputs);
   const metrics = report.performanceMetrics || report.metrics;
   if (!metrics) {
     const fallbackMetrics = {
@@ -566,11 +582,11 @@ type FinaPointEntry = {
 
 function calculateEfficiencyMetrics(
   entries: AnalyzeInputs["raceEntries"],
-  athleteProfile?: AnalyzeInputs["athleteProfile"]
+  inputs: Pick<AnalyzeInputs, "athleteProfile" | "gender">
 ): EfficiencyMetricsResult {
   const totalSeconds = entries?.[0] ? parseRaceTimeToSeconds(entries[0].time) : null;
   const hasCompleteData = hasCompleteLapData(entries);
-  const finaPointEntries = calculateFinaPointEntries(entries, athleteProfile);
+  const finaPointEntries = calculateFinaPointEntries(entries, inputs);
   const validFinaPoints = finaPointEntries
     .map((entry) => entry.points)
     .filter((points): points is number => typeof points === "number" && Number.isFinite(points));
@@ -649,9 +665,9 @@ function calculateCssSeconds(entries: NonNullable<AnalyzeInputs["raceEntries"]>)
 
 function calculateFinaPointEntries(
   entries: AnalyzeInputs["raceEntries"],
-  athleteProfile?: AnalyzeInputs["athleteProfile"]
+  inputs: Pick<AnalyzeInputs, "athleteProfile" | "gender">
 ): FinaPointEntry[] {
-  const gender = athleteProfile?.gender === "M" ? "Male" : athleteProfile?.gender === "F" ? "Female" : null;
+  const gender = resolveFinaGender(inputs);
 
   return (entries || []).map((entry, index) => {
     const normalizedEvent = normalizeFinaEvent(entry.event);
@@ -702,6 +718,25 @@ function calculateFinaPointEntries(
       points: calculateFinaPoints(normalizedEvent, gender, timeSeconds),
     };
   });
+}
+
+function resolveFinaGender(inputs: Pick<AnalyzeInputs, "athleteProfile" | "gender">): FinaGender | null {
+  const explicitGender = normalizeText(inputs.gender)?.toLowerCase();
+  if (explicitGender === "male" || explicitGender === "m") {
+    return "Male";
+  }
+  if (explicitGender === "female" || explicitGender === "f") {
+    return "Female";
+  }
+
+  if (inputs.athleteProfile?.gender === "M") {
+    return "Male";
+  }
+  if (inputs.athleteProfile?.gender === "F") {
+    return "Female";
+  }
+
+  return null;
 }
 
 function calculateFinaPoints(event: FinaEvent, gender: FinaGender, timeSeconds: number) {
@@ -815,6 +850,14 @@ function mergeMissingData(existing: string[] | undefined, metrics: EfficiencyMet
 function validateAnalyzeRequest(mode: AnalysisMode, inputs: AnalyzeInputs) {
   if (mode === "A" && inputs.videoStoragePath && !normalizeVideoUrl(inputs.videoUrl)) {
     throw new HttpError(400, "videoUrl is required when videoStoragePath is provided.");
+  }
+
+  if (mode === "B" && !resolveFinaGender(inputs)) {
+    throw new HttpError(
+      400,
+      "請先至設定頁面完成性別設定，以利系統進行精確的 FINA 積分與生物力學分析。",
+      "MISSING_PROFILE_DATA"
+    );
   }
 }
 
@@ -1119,7 +1162,7 @@ async function waitForGeminiFileActive(ai: GoogleGenAI, file: GeminiFile): Promi
 
 function buildPrompt(mode: AnalysisMode, inputs: AnalyzeInputs, uploadedVideo: GeminiFile | null) {
   const historicalContext = formatHistoricalContext(inputs.historicalFindings);
-  const efficiencyMetrics = calculateEfficiencyMetrics(inputs.raceEntries);
+  const efficiencyMetrics = calculateEfficiencyMetrics(inputs.raceEntries, inputs);
   const schema = `Return this JSON shape:
 {
   "mode": "A or B",
