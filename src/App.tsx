@@ -289,7 +289,7 @@ function extractModeAFindingLabels(report: AnalysisReport | undefined) {
   }
 
   return report.findings
-    .map((finding) => [finding.metaphor, finding.analysis].filter(Boolean).join(' - '))
+    .map((finding) => finding.metaphor || finding.analysis)
     .map((finding) => finding.trim())
     .filter(Boolean)
     .slice(0, 5);

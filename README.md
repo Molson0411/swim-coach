@@ -813,3 +813,12 @@ npm.cmd run lint
 - Replaced direct JSON parsing with `safeParseJSON(rawText)`, which strips Markdown fences, extracts the JSON object block, and sanitizes problematic control characters.
 - Parse failures now print the full bounded raw response with `--- RAW GEMINI RESPONSE START/END ---`.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-14 Cross-Mode Data Sync and Guardrails
+
+- Verified Mode B preloads the latest personal Mode A report from Firestore `reports` with `uid`, `mode === "A"`, `orderBy("createdAt", "desc")`, and `limit(1)`.
+- Refined Mode A finding extraction so `historicalFindings` carries concise defect labels instead of long combined diagnosis prose.
+- Injected `【歷史動作診斷紀錄】` into both `api/analyze.ts` and `server/gemini.ts` Mode B prompts when historical findings exist.
+- Added cross-mode instructions requiring Mode B efficiency analysis to connect race data with historical defects, and requiring linked corrective drills to carry `(Ref: Mode A)`.
+- Added anti-hallucination and tag-isolation constraints: Mode B must not invent video timestamps, and `(Ref: Mode A)` may appear only in `trainingPlan.drills`.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

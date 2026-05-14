@@ -218,11 +218,21 @@ const MODE_B_TECHNICAL_EVALUATION_PROMPT = `【四大泳姿微觀分解動作檢
 9. 第一下打：雙手入水瞬間完成下打，托起骨盆。
 10. 第二下打：推水出水瞬間爆發下打，提供推進力。`;
 
+const MODE_B_CROSS_MODE_INTEGRATION_PROMPT = `【跨模式聯動分析指令 (Cross-Mode Integration)】
+若本次分析包含【歷史動作診斷紀錄】，請嚴格執行以下兩項任務：
+1. 效率分析聯動 (Efficiency Analysis)：在 performanceMetrics.analysis 中，主動將本次輸入的「秒數/配速數據」與「歷史技術瑕疵」建立因果連結。例如，若歷史紀錄包含 "EVF 缺失"，應說明這可能是導致本次配速無法提升的主因，藉此體現雙軌教練的連貫性。
+2. 課表處方聯動 (Training Plan Drills)：在 trainingPlan.drills 欄位中，必須優先安排至少一項專門針對「歷史技術瑕疵」進行矯正的專項練習，並且必須在該動作名稱後方加上 "(Ref: Mode A)" 標記。
+
+【防幻覺與標籤隔離約束 (Anti-Hallucination & Tag Isolation)】
+1. 嚴禁捏造影片時間點：本次分析（模式 B）僅基於使用者輸入的客觀賽事秒數與划手數。絕對禁止在 performanceMetrics.analysis 或 growthAdvice 等純文字段落中發明或捏造任何「影片時間標籤」（例如 [00:05] 到 [00:10]）。請專注於秒數、配速 (CSS) 與推算的動力學表現，切勿假裝你正在觀看影片。
+2. 嚴格隔離聯動標籤：若收到 historicalFindings，其對應的記號 "(Ref: Mode A)" 僅限於放置在 trainingPlan.drills 欄位內的動作名稱後方。絕對禁止將 "(Ref: Mode A)" 或「根據歷史影片分析」等字眼寫入 performanceMetrics.analysis、growthAdvice 或任何純文字段落中。`;
+
 function getApiKey() {
   return process.env.GEMINI_API_KEY || "";
 }
 
 function buildPrompt(mode: AnalysisMode, inputs: AnalyzeInputs) {
+  const historicalContext = formatHistoricalContext(inputs.historicalFindings);
   const schema = `請嚴格輸出以下 JSON schema：
 {
   "mode": "A 或 B",
@@ -253,17 +263,26 @@ ${MODE_B_SPORTS_SCIENCE_PROMPT}
 
 ${MODE_B_TECHNICAL_EVALUATION_PROMPT}
 
+${MODE_B_CROSS_MODE_INTEGRATION_PROMPT}
+
 Mode B strict output rules:
 - Act as a senior swimming coach and sports data analyst.
 - Use every raceEntries item, including splits and strokeCounts numeric arrays.
 - Calculate or estimate SWOLF, DPS, CSS, and FINA points from lap data.
 - Return performanceMetrics and trainingPlan. Keep metrics identical to performanceMetrics for backward compatibility.
-- If historicalFindings are provided, trainingPlan.drills must prioritize corrective drills from the Advanced Drill Mapping matrix above. Add the exact suffix "(Ref: Mode A)" after each linked drill name or linked drill sentence.
+- If historicalFindings are provided, trainingPlan.drills must prioritize corrective drills from the Advanced Drill Mapping matrix above. Add the exact suffix "(Ref: Mode A)" only after the linked drill name inside trainingPlan.drills.
 ${formatAthleteProfile(inputs.athleteProfile)}
+${historicalContext}
 ${formatHistoricalFindings(inputs.historicalFindings)}
 ${inputs.raceEntries?.map((entry, index) => (
   `項目 ${index + 1}：${entry.event}，時間：${entry.time}，每趟划手數：${formatNumberArray(entry.strokeCounts)}，泳池長度：${entry.poolLength}，每趟分段：${formatNumberArray(entry.splits)}`
 )).join("\n") || "未提供數據"}`;
+}
+
+function formatHistoricalContext(historicalFindings: AnalyzeInputs["historicalFindings"]) {
+  return historicalFindings && historicalFindings.length > 0
+    ? `【歷史動作診斷紀錄】該名選手在過去的影像分析中，被標記了以下技術瑕疵：${historicalFindings.join(", ")}。`
+    : "";
 }
 
 function formatHistoricalFindings(findings: AnalyzeInputs["historicalFindings"]) {
