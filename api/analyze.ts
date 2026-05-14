@@ -191,7 +191,6 @@ const RAG_INJECTION_LIMIT = 3;
 const ANALYZE_API_TIMEOUT_MS = 180_000;
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 const HIGH_ACCURACY_GEMINI_MODEL = "gemini-2.5-pro";
-const INSUFFICIENT_EFFICIENCY_DATA_MESSAGE = "【資料不足，無法執行】因未填寫每趟分段秒數與划手數，系統無法精確計算 SWOLF 與 DPS 指標。以上為基於總秒數與歷史紀錄之分析。";
 const STROKE_QUERY_LABELS: Record<string, string> = {
   freestyle: "自由式",
   free: "自由式",
@@ -364,6 +363,15 @@ const MODE_B_EFFICIENCY_THEORY_PROMPT = `【競技游泳效率監測理論注入
 3. 主動阻力 Active Drag 會受身體水平位置、核心穩定、FSA 正面投影面積、橫向蛇行、呼吸與換氣造成的姿態破壞影響。請用這些概念解釋配速衰退與效率變化。
 4. CSS 是臨界泳速，應以 400m 與 200m 測驗時間估算：CSS(sec/100m) = (T400 - T200) / 2。若未同時提供 400m 與 200m 成績，必須明確說明 CSS 無法精準分析。
 5. 若 API 已提供 SWOLF、DPS 或 CSS 計算值，performanceMetrics.analysis 必須直接引用具體數字，並把數字連結到 Active Drag、FSA、SR/DPS 平衡與流體動能轉換進行深度論述。`;
+
+const MODE_B_HIGHLIGHTING_PROMPT = `【關鍵字標記準則 (Highlighting Strategy)】
+為了提升報告可讀性，請你在撰寫 performanceMetrics.analysis 與 growthAdvice 時，主動使用 Markdown 的雙米字號 ** 將以下重點內容進行標記（加粗）：
+1. 核心數據：例如具體的秒數、配速、FINA 積分數值。
+2. 生物力學關鍵術語：例如 DPS、SWOLF、EVF (早期垂直前臂)、主動阻力、流線型瓦解。
+3. 關鍵診斷結論：例如「效率衰退顯著」、「推進長度不足」、「具備優異短程爆發力」等結論性語句。
+
+【證據優先原則】
+標記數據時，僅可標記本次輸入、後端計算結果或歷史紀錄中確實存在的真實數據。若某項數據為 null 或未提供，請用自然語氣描述限制，不要發明數字，也不要使用硬性資料不足模板句。`;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   console.log("========== [後端連線確認] 成功進入 Analyze API 內部 ==========");
@@ -548,7 +556,7 @@ function normalizeAnalysisReport(report: AnalysisReport, inputs: AnalyzeInputs):
     dps: calculatedMetrics.dps,
     css: calculatedMetrics.css,
     finaPoints: calculatedMetrics.finaPoints || 0,
-    analysis: ensureEfficiencyDataMessage(metrics.analysis, calculatedMetrics),
+    analysis: metrics.analysis,
   };
 
   return {
@@ -820,15 +828,7 @@ function buildEfficiencyAnalysisFallback(metrics: EfficiencyMetricsResult) {
 
   return metrics.hasCompleteData
     ? `${totalSummary} SWOLF=${metrics.swolf}, DPS=${metrics.dps}, CSS=${metrics.css || "無法精準計算"}，FINA Points=${metrics.finaPoints ?? "無法計算"}。`
-    : `${totalSummary}\n\n${INSUFFICIENT_EFFICIENCY_DATA_MESSAGE}`;
-}
-
-function ensureEfficiencyDataMessage(analysis: string, metrics: EfficiencyMetricsResult) {
-  if (metrics.hasCompleteData || analysis.includes(INSUFFICIENT_EFFICIENCY_DATA_MESSAGE)) {
-    return analysis;
-  }
-
-  return `${analysis.trim()}\n\n${INSUFFICIENT_EFFICIENCY_DATA_MESSAGE}`;
+    : `${totalSummary} 因缺少完整每趟分段秒數或划手數，SWOLF、DPS 與 CSS 保持空值，僅進行總秒數、FINA 積分與歷史紀錄方向的描述。`;
 }
 
 function mergeMissingData(existing: string[] | undefined, metrics: EfficiencyMetricsResult) {
@@ -1200,6 +1200,8 @@ ${MODE_B_CROSS_MODE_INTEGRATION_PROMPT}
 
 ${MODE_B_EFFICIENCY_THEORY_PROMPT}
 
+${MODE_B_HIGHLIGHTING_PROMPT}
+
 ${schema}
 
 Mode B: race or training data analysis.
@@ -1248,7 +1250,7 @@ function formatEfficiencyMetricsForPrompt(metrics: EfficiencyMetricsResult) {
 本次分析收到的數據狀態：是否包含分段秒數與划手數（${metrics.hasCompleteData}）。
 ${computedValues}
 - 若為 true：請正常進行 SWOLF 與 DPS 的流體力學數據深度解析，並直接引用 serverCalculatedSWOLF、serverCalculatedDPS 與 serverCalculatedCSS。
-- 若為 false：嚴禁捏造數據進行分析。請將 performanceMetrics.swolf、performanceMetrics.dps、performanceMetrics.css 設為 null。在 performanceMetrics.analysis 中，請專注於配速與 FINA 積分的分析，並在該段落的結尾直接輸出以下標準化字串作為總結：「${INSUFFICIENT_EFFICIENCY_DATA_MESSAGE}」
+- 若為 false：嚴禁捏造數據進行分析。請將 performanceMetrics.swolf、performanceMetrics.dps、performanceMetrics.css 設為 null；performanceMetrics.analysis 請以自然、專業、優雅的方式說明本次僅能聚焦總秒數、FINA 積分、配速趨勢與歷史紀錄，不要輸出任何固定格式的資料不足模板句。
 - CSS 補充約束：若 serverCalculatedCSS 為 null，請明確說明未同時填寫 400m 與 200m 距離成績時無法進行 CSS 精準分析，禁止自行估算。
 
 ${formatFinaPointsForPrompt(metrics.finaPointEntries)}`;

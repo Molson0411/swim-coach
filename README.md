@@ -864,3 +864,11 @@ npm.cmd run lint
 - Added a dedicated `MISSING_PROFILE_DATA` response with the required profile-completion message when gender is missing or invalid.
 - Frontend catch handling now opens the Athlete Profile modal when this backend guard is triggered.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-14 Mode B Report Highlighting Cleanup
+
+- Removed the hard-coded insufficient-data sentence that was previously appended to `performanceMetrics.analysis`.
+- Kept the defensive nulling behavior for missing SWOLF, DPS, and CSS inputs, but now asks Gemini to describe limitations naturally.
+- Added `MODE_B_HIGHLIGHTING_PROMPT` to require Markdown `**bold**` emphasis for real core data, biomechanics terms, and key conclusions.
+- Added an evidence-first constraint so highlighted numbers must come from user input, backend calculations, or history, never invented values.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
