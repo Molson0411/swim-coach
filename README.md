@@ -838,3 +838,11 @@ npm.cmd run lint
 - Converted all `MM:SS.xx` values into floating-point seconds and created `utils/finaBaseTimes.ts`.
 - Double-checked the extraction by validating the raw 1000-point PDF rows and column indices before writing constants.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-14 Mode B Efficiency Metrics Graceful Degradation
+
+- Upgraded `api/analyze.ts` Mode B with server-side SWOLF, DPS, CSS, and total-time calculation helpers.
+- Added `hasCompleteData` detection for complete per-lap `splits` and `strokeCounts`; incomplete data now leaves SWOLF, DPS, and CSS as `null` instead of throwing.
+- Injected biomechanics and physiology theory into the Mode B prompt, including Active Drag, FSA, SR/DPS balance, SWOLF, DPS, and CSS interpretation.
+- Added the required allowed-blank guardrail so incomplete lap data appends the standardized insufficient-data message and prevents hallucinated efficiency metrics.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

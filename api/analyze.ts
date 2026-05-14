@@ -32,16 +32,16 @@ type AnalysisReport = {
     };
   }[];
   metrics?: {
-    swolf: number;
-    dps: number;
-    css?: string;
+    swolf: number | null;
+    dps: number | null;
+    css?: string | null;
     finaPoints?: number;
     analysis: string;
   };
   performanceMetrics?: {
-    swolf: number;
-    dps: number;
-    css?: string;
+    swolf: number | null;
+    dps: number | null;
+    css?: string | null;
     finaPoints?: number;
     analysis: string;
   };
@@ -133,9 +133,9 @@ const ANALYSIS_REPORT_RESPONSE_SCHEMA = {
       nullable: true,
       required: ["swolf", "dps", "css", "finaPoints", "analysis"],
       properties: {
-        swolf: { type: Type.NUMBER },
-        dps: { type: Type.NUMBER },
-        css: { type: Type.STRING },
+        swolf: { type: Type.NUMBER, nullable: true },
+        dps: { type: Type.NUMBER, nullable: true },
+        css: { type: Type.STRING, nullable: true },
         finaPoints: { type: Type.NUMBER },
         analysis: { type: Type.STRING },
       },
@@ -144,9 +144,9 @@ const ANALYSIS_REPORT_RESPONSE_SCHEMA = {
       type: Type.OBJECT,
       required: ["swolf", "dps", "css", "finaPoints", "analysis"],
       properties: {
-        swolf: { type: Type.NUMBER },
-        dps: { type: Type.NUMBER },
-        css: { type: Type.STRING },
+        swolf: { type: Type.NUMBER, nullable: true },
+        dps: { type: Type.NUMBER, nullable: true },
+        css: { type: Type.STRING, nullable: true },
         finaPoints: { type: Type.NUMBER },
         analysis: { type: Type.STRING },
       },
@@ -186,6 +186,7 @@ const RAG_INJECTION_LIMIT = 3;
 const ANALYZE_API_TIMEOUT_MS = 180_000;
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 const HIGH_ACCURACY_GEMINI_MODEL = "gemini-2.5-pro";
+const INSUFFICIENT_EFFICIENCY_DATA_MESSAGE = "【資料不足，無法執行】因未填寫每趟分段秒數與划手數，系統無法精確計算 SWOLF 與 DPS 指標。以上為基於總秒數與歷史紀錄之分析。";
 const STROKE_QUERY_LABELS: Record<string, string> = {
   freestyle: "自由式",
   free: "自由式",
@@ -351,6 +352,14 @@ const MODE_B_CROSS_MODE_INTEGRATION_PROMPT = `【跨模式聯動分析指令 (Cr
 1. 嚴禁捏造影片時間點：本次分析（模式 B）僅基於使用者輸入的客觀賽事秒數與划手數。絕對禁止在 performanceMetrics.analysis 或 growthAdvice 等純文字段落中發明或捏造任何「影片時間標籤」（例如 [00:05] 到 [00:10]）。請專注於秒數、配速 (CSS) 與推算的動力學表現，切勿假裝你正在觀看影片。
 2. 嚴格隔離聯動標籤：若收到 historicalFindings，其對應的記號 "(Ref: Mode A)" 僅限於放置在 trainingPlan.drills 欄位內的動作名稱後方。絕對禁止將 "(Ref: Mode A)" 或「根據歷史影片分析」等字眼寫入 performanceMetrics.analysis、growthAdvice 或任何純文字段落中。`;
 
+const MODE_B_EFFICIENCY_THEORY_PROMPT = `【競技游泳效率監測理論注入】
+請以「生物力學與生理學理論體系」解讀模式 B 數據：
+1. 速度 V 由划水頻率 SR 與推進長度 DPS 共同決定，V = SR × DPS。DPS 偏低通常代表單次划水有效推進不足，可能來自抱水面積不足、流線型破壞或主動阻力上升。
+2. SWOLF = 單趟秒數 + 單趟划手數，代表時間成本與動作成本的綜合效率。SWOLF 越低通常代表在相同池長下速度與划水經濟性越好，但必須同時觀察 DPS，避免只靠減少划手數造成速度下降。
+3. 主動阻力 Active Drag 會受身體水平位置、核心穩定、FSA 正面投影面積、橫向蛇行、呼吸與換氣造成的姿態破壞影響。請用這些概念解釋配速衰退與效率變化。
+4. CSS 是臨界泳速，應以 400m 與 200m 測驗時間估算：CSS(sec/100m) = (T400 - T200) / 2。若未同時提供 400m 與 200m 成績，必須明確說明 CSS 無法精準分析。
+5. 若 API 已提供 SWOLF、DPS 或 CSS 計算值，performanceMetrics.analysis 必須直接引用具體數字，並把數字連結到 Active Drag、FSA、SR/DPS 平衡與流體動能轉換進行深度論述。`;
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   console.log("========== [後端連線確認] 成功進入 Analyze API 內部 ==========");
   setCorsHeaders(req, res);
@@ -456,7 +465,7 @@ async function analyzeWithGemini(
       throw new Error("Gemini API returned an empty response.");
     }
 
-    const report = normalizeAnalysisReport(parseGeminiJsonResponse(text));
+    const report = normalizeAnalysisReport(parseGeminiJsonResponse(text), inputs);
     await saveAnalysisReport(report, inputs);
     return report;
   } catch (error) {
@@ -491,21 +500,195 @@ async function saveAnalysisReport(report: AnalysisReport, inputs: AnalyzeInputs)
   });
 }
 
-function normalizeAnalysisReport(report: AnalysisReport): AnalysisReport {
+function normalizeAnalysisReport(report: AnalysisReport, inputs: AnalyzeInputs): AnalysisReport {
   if (report.mode !== "B") {
     return report;
   }
 
+  const calculatedMetrics = calculateEfficiencyMetrics(inputs.raceEntries);
   const metrics = report.performanceMetrics || report.metrics;
   if (!metrics) {
-    return report;
+    const fallbackMetrics = {
+      swolf: calculatedMetrics.swolf,
+      dps: calculatedMetrics.dps,
+      css: calculatedMetrics.css,
+      finaPoints: 0,
+      analysis: buildEfficiencyAnalysisFallback(calculatedMetrics),
+    };
+
+    return {
+      ...report,
+      performanceMetrics: fallbackMetrics,
+      metrics: fallbackMetrics,
+      missingData: mergeMissingData(report.missingData, calculatedMetrics),
+    };
   }
+
+  const normalizedMetrics = {
+    ...metrics,
+    swolf: calculatedMetrics.swolf,
+    dps: calculatedMetrics.dps,
+    css: calculatedMetrics.css,
+    analysis: ensureEfficiencyDataMessage(metrics.analysis, calculatedMetrics),
+  };
 
   return {
     ...report,
-    performanceMetrics: metrics,
-    metrics: report.metrics || metrics,
+    performanceMetrics: normalizedMetrics,
+    metrics: normalizedMetrics,
+    missingData: mergeMissingData(report.missingData, calculatedMetrics),
   };
+}
+
+type EfficiencyMetricsResult = {
+  hasCompleteData: boolean;
+  swolf: number | null;
+  dps: number | null;
+  css: string | null;
+  totalSeconds: number | null;
+  cssReason: string | null;
+};
+
+function calculateEfficiencyMetrics(entries: AnalyzeInputs["raceEntries"]): EfficiencyMetricsResult {
+  const totalSeconds = entries?.[0] ? parseRaceTimeToSeconds(entries[0].time) : null;
+  const hasCompleteData = hasCompleteLapData(entries);
+
+  if (!entries || entries.length === 0 || !hasCompleteData) {
+    return {
+      hasCompleteData: false,
+      swolf: null,
+      dps: null,
+      css: null,
+      totalSeconds,
+      cssReason: "未完整填寫每趟分段秒數與划手數，CSS、SWOLF 與 DPS 不進行推算。",
+    };
+  }
+
+  const lapRows = entries.flatMap((entry) => {
+    const poolLength = parsePositiveNumber(entry.poolLength);
+    return (entry.splits || []).map((split, index) => ({
+      poolLength,
+      split,
+      strokeCount: entry.strokeCounts?.[index] || 0,
+    }));
+  }).filter((lap) => lap.poolLength > 0 && lap.split > 0 && lap.strokeCount > 0);
+
+  const swolf = average(lapRows.map((lap) => lap.split + lap.strokeCount));
+  const dps = average(lapRows.map((lap) => lap.poolLength / lap.strokeCount));
+  const cssSeconds = calculateCssSeconds(entries);
+
+  return {
+    hasCompleteData: true,
+    swolf: roundToTwo(swolf),
+    dps: roundToTwo(dps),
+    css: cssSeconds === null ? null : `${roundToTwo(cssSeconds).toFixed(2)} sec/100m`,
+    totalSeconds,
+    cssReason: cssSeconds === null ? "未同時提供 400m 與 200m 成績，CSS 無法精準分析。" : null,
+  };
+}
+
+function hasCompleteLapData(entries: AnalyzeInputs["raceEntries"]) {
+  if (!entries || entries.length === 0) {
+    return false;
+  }
+
+  return entries.every((entry) => {
+    const distance = extractRaceDistance(entry.event);
+    const poolLength = parsePositiveNumber(entry.poolLength);
+    const expectedLaps = distance > 0 && poolLength > 0 ? Math.ceil(distance / poolLength) : 0;
+    const splits = entry.splits || [];
+    const strokeCounts = entry.strokeCounts || [];
+
+    return expectedLaps > 0
+      && splits.length >= expectedLaps
+      && strokeCounts.length >= expectedLaps
+      && splits.slice(0, expectedLaps).every((value) => Number.isFinite(value) && value > 0)
+      && strokeCounts.slice(0, expectedLaps).every((value) => Number.isFinite(value) && value > 0);
+  });
+}
+
+function calculateCssSeconds(entries: NonNullable<AnalyzeInputs["raceEntries"]>) {
+  const entry200 = entries.find((entry) => extractRaceDistance(entry.event) === 200);
+  const entry400 = entries.find((entry) => extractRaceDistance(entry.event) === 400);
+  const time200 = entry200 ? parseRaceTimeToSeconds(entry200.time) : null;
+  const time400 = entry400 ? parseRaceTimeToSeconds(entry400.time) : null;
+
+  if (time200 === null || time400 === null || time400 <= time200) {
+    return null;
+  }
+
+  return (time400 - time200) / 2;
+}
+
+function parseRaceTimeToSeconds(value: string | undefined) {
+  const text = normalizeText(value);
+  if (!text) {
+    return null;
+  }
+
+  const parts = text.split(":").map((part) => part.trim());
+  if (parts.some((part) => !part)) {
+    return null;
+  }
+
+  const total = parts.reduce((seconds, part) => {
+    const parsed = Number(part);
+    return Number.isFinite(parsed) ? seconds * 60 + parsed : Number.NaN;
+  }, 0);
+
+  return Number.isFinite(total) && total > 0 ? total : null;
+}
+
+function extractRaceDistance(event: string | undefined) {
+  const match = normalizeText(event)?.match(/\d+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function parsePositiveNumber(value: string | undefined) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function average(values: number[]) {
+  if (values.length === 0) {
+    return null;
+  }
+
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function roundToTwo(value: number | null) {
+  return value === null ? null : Math.round(value * 100) / 100;
+}
+
+function buildEfficiencyAnalysisFallback(metrics: EfficiencyMetricsResult) {
+  const totalSummary = metrics.totalSeconds === null
+    ? "本次模式 B 分析未收到可解析的總秒數。"
+    : `本次總秒數為 ${metrics.totalSeconds.toFixed(2)} 秒，仍可用於配速與 FINA 積分方向的討論。`;
+
+  return metrics.hasCompleteData
+    ? `${totalSummary} SWOLF=${metrics.swolf}, DPS=${metrics.dps}, CSS=${metrics.css || "無法精準計算"}。`
+    : `${totalSummary}\n\n${INSUFFICIENT_EFFICIENCY_DATA_MESSAGE}`;
+}
+
+function ensureEfficiencyDataMessage(analysis: string, metrics: EfficiencyMetricsResult) {
+  if (metrics.hasCompleteData || analysis.includes(INSUFFICIENT_EFFICIENCY_DATA_MESSAGE)) {
+    return analysis;
+  }
+
+  return `${analysis.trim()}\n\n${INSUFFICIENT_EFFICIENCY_DATA_MESSAGE}`;
+}
+
+function mergeMissingData(existing: string[] | undefined, metrics: EfficiencyMetricsResult) {
+  const missingData = [...(existing || [])];
+
+  if (!metrics.hasCompleteData) {
+    missingData.push("splits and strokeCounts are incomplete; SWOLF, DPS, and CSS are intentionally left blank.");
+  } else if (metrics.cssReason) {
+    missingData.push(metrics.cssReason);
+  }
+
+  return Array.from(new Set(missingData));
 }
 
 function validateAnalyzeRequest(mode: AnalysisMode, inputs: AnalyzeInputs) {
@@ -815,6 +998,7 @@ async function waitForGeminiFileActive(ai: GoogleGenAI, file: GeminiFile): Promi
 
 function buildPrompt(mode: AnalysisMode, inputs: AnalyzeInputs, uploadedVideo: GeminiFile | null) {
   const historicalContext = formatHistoricalContext(inputs.historicalFindings);
+  const efficiencyMetrics = calculateEfficiencyMetrics(inputs.raceEntries);
   const schema = `Return this JSON shape:
 {
   "mode": "A or B",
@@ -850,6 +1034,8 @@ ${MODE_B_TECHNICAL_EVALUATION_PROMPT}
 
 ${MODE_B_CROSS_MODE_INTEGRATION_PROMPT}
 
+${MODE_B_EFFICIENCY_THEORY_PROMPT}
+
 ${schema}
 
 Mode B: race or training data analysis.
@@ -860,6 +1046,7 @@ Mode B strict output rules:
 - metrics must mirror performanceMetrics for backward compatibility.
 - Base SWOLF and DPS on each lap's splits and strokeCounts. If a value must be estimated, explain the limitation in performanceMetrics.analysis and missingData.
 - If historicalFindings are provided, trainingPlan.drills must prioritize corrective drills from the Advanced Drill Mapping matrix above. Add the exact suffix "(Ref: Mode A)" only after the linked drill name inside trainingPlan.drills.
+${formatEfficiencyMetricsForPrompt(efficiencyMetrics)}
 ${formatAthleteProfile(inputs.athleteProfile)}
 ${historicalContext}
 ${formatHistoricalFindings(inputs.historicalFindings)}
@@ -881,6 +1068,23 @@ function formatHistoricalFindings(findings: AnalyzeInputs["historicalFindings"])
     "Historical Mode A findings for cross-mode planning:",
     ...findings.map((finding, index) => `${index + 1}. ${finding}`),
   ].join("\n");
+}
+
+function formatEfficiencyMetricsForPrompt(metrics: EfficiencyMetricsResult) {
+  const computedValues = [
+    `hasCompleteData: ${metrics.hasCompleteData}`,
+    `serverCalculatedSWOLF: ${metrics.swolf ?? "null"}`,
+    `serverCalculatedDPS: ${metrics.dps ?? "null"}`,
+    `serverCalculatedCSS: ${metrics.css ?? "null"}`,
+    `serverParsedTotalSeconds: ${metrics.totalSeconds ?? "null"}`,
+  ].join("\n");
+
+  return `【資料缺失處理與允許留白原則】
+本次分析收到的數據狀態：是否包含分段秒數與划手數（${metrics.hasCompleteData}）。
+${computedValues}
+- 若為 true：請正常進行 SWOLF 與 DPS 的流體力學數據深度解析，並直接引用 serverCalculatedSWOLF、serverCalculatedDPS 與 serverCalculatedCSS。
+- 若為 false：嚴禁捏造數據進行分析。請將 performanceMetrics.swolf、performanceMetrics.dps、performanceMetrics.css 設為 null。在 performanceMetrics.analysis 中，請專注於配速與 FINA 積分的分析，並在該段落的結尾直接輸出以下標準化字串作為總結：「${INSUFFICIENT_EFFICIENCY_DATA_MESSAGE}」
+- CSS 補充約束：若 serverCalculatedCSS 為 null，請明確說明未同時填寫 400m 與 200m 距離成績時無法進行 CSS 精準分析，禁止自行估算。`;
 }
 
 function formatAthleteProfile(profile: AnalyzeInputs["athleteProfile"]) {
