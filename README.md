@@ -830,3 +830,11 @@ npm.cmd run lint
 - Applied the same stroke filter to the local `history` fallback lookup.
 - Added `whitespace-pre-wrap` to the Mode B `Efficiency Analysis` and shared `Coach's Growth Advice` text containers so AI paragraph breaks render correctly.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-14 2026 World Aquatics FINA Base Times
+
+- Read the official 2026 World Aquatics LCM male and female point-scoring PDFs from the desktop.
+- Extracted the 1000-point base-time rows for the requested freestyle, backstroke, breaststroke, butterfly, and individual medley events.
+- Converted all `MM:SS.xx` values into floating-point seconds and created `utils/finaBaseTimes.ts`.
+- Double-checked the extraction by validating the raw 1000-point PDF rows and column indices before writing constants.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
