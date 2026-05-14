@@ -27,6 +27,85 @@ type AnalyzeInputs = {
   }[];
 };
 
+const ANALYSIS_REPORT_RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  required: ["mode", "performanceMetrics", "trainingPlan", "growthAdvice", "missingData"],
+  properties: {
+    mode: { type: "STRING", enum: ["A", "B"] },
+    impression: { type: "STRING", nullable: true },
+    stroke: { type: "STRING", nullable: true },
+    findings: {
+      type: "ARRAY",
+      nullable: true,
+      items: {
+        type: "OBJECT",
+        required: ["metaphor", "analysis"],
+        properties: {
+          metaphor: { type: "STRING" },
+          analysis: { type: "STRING" },
+        },
+      },
+    },
+    suggestions: {
+      type: "ARRAY",
+      nullable: true,
+      items: {
+        type: "OBJECT",
+        required: ["mnemonic", "drill"],
+        properties: {
+          mnemonic: { type: "STRING" },
+          drill: {
+            type: "OBJECT",
+            required: ["name", "purpose"],
+            properties: {
+              name: { type: "STRING" },
+              purpose: { type: "STRING" },
+            },
+          },
+        },
+      },
+    },
+    metrics: {
+      type: "OBJECT",
+      nullable: true,
+      required: ["swolf", "dps", "css", "finaPoints", "analysis"],
+      properties: {
+        swolf: { type: "NUMBER" },
+        dps: { type: "NUMBER" },
+        css: { type: "STRING" },
+        finaPoints: { type: "NUMBER" },
+        analysis: { type: "STRING" },
+      },
+    },
+    performanceMetrics: {
+      type: "OBJECT",
+      required: ["swolf", "dps", "css", "finaPoints", "analysis"],
+      properties: {
+        swolf: { type: "NUMBER" },
+        dps: { type: "NUMBER" },
+        css: { type: "STRING" },
+        finaPoints: { type: "NUMBER" },
+        analysis: { type: "STRING" },
+      },
+    },
+    trainingPlan: {
+      type: "OBJECT",
+      required: ["warmup", "drills", "mainSet", "coolDown"],
+      properties: {
+        warmup: { type: "STRING" },
+        drills: { type: "STRING" },
+        mainSet: { type: "STRING" },
+        coolDown: { type: "STRING" },
+      },
+    },
+    growthAdvice: { type: "STRING" },
+    missingData: {
+      type: "ARRAY",
+      items: { type: "STRING" },
+    },
+  },
+} as const;
+
 const RAG_HISTORY_LIMIT = 10;
 const RAG_INJECTION_LIMIT = 3;
 const STROKE_QUERY_LABELS: Record<string, string> = {
@@ -319,6 +398,7 @@ export async function analyzeWithGemini(
           ],
           generationConfig: {
             responseMimeType: "application/json",
+            responseSchema: ANALYSIS_REPORT_RESPONSE_SCHEMA,
             maxOutputTokens: 8192,
           },
         }),
@@ -559,13 +639,72 @@ function stripCodeFence(value: string) {
 }
 
 function parseGeminiJsonResponse(text: string): AnalysisReport {
-  const cleanText = stripCodeFence(text);
-
   try {
-    return JSON.parse(cleanText) as AnalysisReport;
+    return safeParseJSON(text) as AnalysisReport;
   } catch (error) {
-    console.error("[Gemini JSON Parse Error] Failed to parse JSON mode response:", error);
-    console.error("Raw Gemini Response:", text);
-    throw new Error("Gemini returned invalid JSON despite JSON mode. Please retry or inspect server logs for the raw response.");
+    console.error("[Gemini JSON Parse Error] Failed to parse Gemini response:", error);
+    console.error("\n--- RAW GEMINI RESPONSE START ---\n", text, "\n--- RAW GEMINI RESPONSE END ---\n");
+    throw new Error("Gemini returned invalid JSON after schema-guided parsing. Please retry or inspect server logs for the raw response.");
   }
+}
+
+function safeParseJSON(rawText: string): unknown {
+  const fencedText = stripCodeFence(rawText);
+  const startIndex = fencedText.indexOf("{");
+  const endIndex = fencedText.lastIndexOf("}");
+  const jsonBlock = startIndex !== -1 && endIndex !== -1 && endIndex >= startIndex
+    ? fencedText.slice(startIndex, endIndex + 1)
+    : fencedText;
+  const sanitized = sanitizeJsonControlCharacters(jsonBlock);
+
+  return JSON.parse(sanitized);
+}
+
+function sanitizeJsonControlCharacters(value: string) {
+  let result = "";
+  let inString = false;
+  let escaped = false;
+
+  for (const char of value) {
+    if (escaped) {
+      result += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      result += char;
+      escaped = true;
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = !inString;
+      result += char;
+      continue;
+    }
+
+    if (inString) {
+      if (char === "\n") {
+        result += "\\n";
+      } else if (char === "\r") {
+        result += "\\r";
+      } else if (char === "\t") {
+        result += "\\t";
+      } else if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/u.test(char)) {
+        continue;
+      } else {
+        result += char;
+      }
+      continue;
+    }
+
+    if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/u.test(char)) {
+      continue;
+    }
+
+    result += char;
+  }
+
+  return result;
 }

@@ -4,6 +4,7 @@ import {
   createPartFromUri,
   createUserContent,
   type File as GeminiFile,
+  Type,
 } from "@google/genai";
 import { createWriteStream } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -88,6 +89,85 @@ type StagedVideoFile = {
   displayName: string;
   mimeType: string;
 };
+
+const ANALYSIS_REPORT_RESPONSE_SCHEMA = {
+  type: Type.OBJECT,
+  required: ["mode", "performanceMetrics", "trainingPlan", "growthAdvice", "missingData"],
+  properties: {
+    mode: { type: Type.STRING, enum: ["A", "B"] },
+    impression: { type: Type.STRING, nullable: true },
+    stroke: { type: Type.STRING, nullable: true },
+    findings: {
+      type: Type.ARRAY,
+      nullable: true,
+      items: {
+        type: Type.OBJECT,
+        required: ["metaphor", "analysis"],
+        properties: {
+          metaphor: { type: Type.STRING },
+          analysis: { type: Type.STRING },
+        },
+      },
+    },
+    suggestions: {
+      type: Type.ARRAY,
+      nullable: true,
+      items: {
+        type: Type.OBJECT,
+        required: ["mnemonic", "drill"],
+        properties: {
+          mnemonic: { type: Type.STRING },
+          drill: {
+            type: Type.OBJECT,
+            required: ["name", "purpose"],
+            properties: {
+              name: { type: Type.STRING },
+              purpose: { type: Type.STRING },
+            },
+          },
+        },
+      },
+    },
+    metrics: {
+      type: Type.OBJECT,
+      nullable: true,
+      required: ["swolf", "dps", "css", "finaPoints", "analysis"],
+      properties: {
+        swolf: { type: Type.NUMBER },
+        dps: { type: Type.NUMBER },
+        css: { type: Type.STRING },
+        finaPoints: { type: Type.NUMBER },
+        analysis: { type: Type.STRING },
+      },
+    },
+    performanceMetrics: {
+      type: Type.OBJECT,
+      required: ["swolf", "dps", "css", "finaPoints", "analysis"],
+      properties: {
+        swolf: { type: Type.NUMBER },
+        dps: { type: Type.NUMBER },
+        css: { type: Type.STRING },
+        finaPoints: { type: Type.NUMBER },
+        analysis: { type: Type.STRING },
+      },
+    },
+    trainingPlan: {
+      type: Type.OBJECT,
+      required: ["warmup", "drills", "mainSet", "coolDown"],
+      properties: {
+        warmup: { type: Type.STRING },
+        drills: { type: Type.STRING },
+        mainSet: { type: Type.STRING },
+        coolDown: { type: Type.STRING },
+      },
+    },
+    growthAdvice: { type: Type.STRING },
+    missingData: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+    },
+  },
+} as const;
 
 class HttpError extends Error {
   constructor(
@@ -442,6 +522,7 @@ async function callGeminiWithCatch(
       config: {
         systemInstruction: input.systemInstruction,
         responseMimeType: "application/json",
+        responseSchema: ANALYSIS_REPORT_RESPONSE_SCHEMA,
         maxOutputTokens: 8192,
       },
     });
@@ -878,15 +959,74 @@ function stripCodeFence(value: string) {
 }
 
 function parseGeminiJsonResponse(text: string): AnalysisReport {
-  const cleanText = stripCodeFence(text);
-
   try {
-    return JSON.parse(cleanText) as AnalysisReport;
+    return safeParseJSON(text) as AnalysisReport;
   } catch (error) {
-    console.error("[Gemini JSON Parse Error] Failed to parse JSON mode response:", error);
-    console.error("Raw Gemini Response:", text);
-    throw new Error("Gemini returned invalid JSON despite JSON mode. Please retry or inspect server logs for the raw response.");
+    console.error("[Gemini JSON Parse Error] Failed to parse Gemini response:", error);
+    console.error("\n--- RAW GEMINI RESPONSE START ---\n", text, "\n--- RAW GEMINI RESPONSE END ---\n");
+    throw new Error("Gemini returned invalid JSON after schema-guided parsing. Please retry or inspect server logs for the raw response.");
   }
+}
+
+function safeParseJSON(rawText: string): unknown {
+  const fencedText = stripCodeFence(rawText);
+  const startIndex = fencedText.indexOf("{");
+  const endIndex = fencedText.lastIndexOf("}");
+  const jsonBlock = startIndex !== -1 && endIndex !== -1 && endIndex >= startIndex
+    ? fencedText.slice(startIndex, endIndex + 1)
+    : fencedText;
+  const sanitized = sanitizeJsonControlCharacters(jsonBlock);
+
+  return JSON.parse(sanitized);
+}
+
+function sanitizeJsonControlCharacters(value: string) {
+  let result = "";
+  let inString = false;
+  let escaped = false;
+
+  for (const char of value) {
+    if (escaped) {
+      result += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      result += char;
+      escaped = true;
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = !inString;
+      result += char;
+      continue;
+    }
+
+    if (inString) {
+      if (char === "\n") {
+        result += "\\n";
+      } else if (char === "\r") {
+        result += "\\r";
+      } else if (char === "\t") {
+        result += "\\t";
+      } else if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/u.test(char)) {
+        continue;
+      } else {
+        result += char;
+      }
+      continue;
+    }
+
+    if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/u.test(char)) {
+      continue;
+    }
+
+    result += char;
+  }
+
+  return result;
 }
 
 function getGeminiModel() {

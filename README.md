@@ -805,3 +805,11 @@ npm.cmd run lint
 - Simplified Gemini response parsing to direct JSON-mode parsing after minimal code-fence cleanup.
 - Parse failures now log `Raw Gemini Response:` before throwing a clear backend error.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-14 Gemini Response Schema and Safe Parse
+
+- Added `ANALYSIS_REPORT_RESPONSE_SCHEMA` to both `api/analyze.ts` and `server/gemini.ts`.
+- Gemini generation config now includes `responseSchema` in addition to JSON mode and `maxOutputTokens: 8192`, requiring `performanceMetrics`, `trainingPlan`, `growthAdvice`, and `missingData`.
+- Replaced direct JSON parsing with `safeParseJSON(rawText)`, which strips Markdown fences, extracts the JSON object block, and sanitizes problematic control characters.
+- Parse failures now print the full bounded raw response with `--- RAW GEMINI RESPONSE START/END ---`.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
