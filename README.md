@@ -872,3 +872,11 @@ npm.cmd run lint
 - Added `MODE_B_HIGHLIGHTING_PROMPT` to require Markdown `**bold**` emphasis for real core data, biomechanics terms, and key conclusions.
 - Added an evidence-first constraint so highlighted numbers must come from user input, backend calculations, or history, never invented values.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-14 Mode A Input Readability Polish
+
+- Updated the Mode A event input and action-description textareas with dark translucent `bg-[#0f172a]/70` surfaces and `backdrop-blur-md`.
+- Added `border-slate-600/50`, `p-3`, and `rounded-xl` to separate form fields from busy backgrounds.
+- Improved readability with `text-slate-100`, `placeholder-slate-400`, `text-base`, and `font-medium`.
+- Added mint focus feedback with `focus:border-[#d5f4d8]` and `focus:ring-1 focus:ring-[#d5f4d8]`.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

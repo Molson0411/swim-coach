@@ -2368,7 +2368,7 @@ function AppContent() {
                           onChange={(e) => setEventA(e.target.value)}
                           disabled={!isAuthenticated}
                           className={cn(
-                            "w-full bg-white border border-ink/10 p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm sm:text-base",
+                            "w-full bg-[#0f172a]/70 backdrop-blur-md border border-slate-600/50 p-3 rounded-xl text-base font-medium text-slate-100 placeholder-slate-400 focus:outline-none focus:border-[#d5f4d8] focus:ring-1 focus:ring-[#d5f4d8] transition-all",
                             !isAuthenticated && "opacity-50 cursor-not-allowed"
                           )}
                         />
@@ -2439,7 +2439,7 @@ function AppContent() {
                           placeholder="請描述目標學員特徵，例如：第3水道、戴紅色泳帽、黑色泳褲"
                           disabled={!isAuthenticated}
                           className={cn(
-                            "w-full rounded-2xl border border-white/15 bg-white/95 p-4 h-28 text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all resize-none",
+                            "w-full bg-[#0f172a]/70 backdrop-blur-md border border-slate-600/50 p-3 rounded-xl h-28 text-base font-medium text-slate-100 placeholder-slate-400 focus:outline-none focus:border-[#d5f4d8] focus:ring-1 focus:ring-[#d5f4d8] transition-all resize-none",
                             !isAuthenticated && "opacity-50 cursor-not-allowed"
                           )}
                         />
@@ -2453,7 +2453,7 @@ function AppContent() {
                           onChange={(e) => setTextInput(e.target.value)}
                           disabled={!isAuthenticated}
                           className={cn(
-                            "w-full bg-white border border-ink/10 p-4 h-32 rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all resize-none text-sm sm:text-base",
+                            "w-full bg-[#0f172a]/70 backdrop-blur-md border border-slate-600/50 p-3 rounded-xl h-32 text-base font-medium text-slate-100 placeholder-slate-400 focus:outline-none focus:border-[#d5f4d8] focus:ring-1 focus:ring-[#d5f4d8] transition-all resize-none",
                             !isAuthenticated && "opacity-50 cursor-not-allowed"
                           )}
                         />
