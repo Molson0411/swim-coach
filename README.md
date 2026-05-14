@@ -797,3 +797,11 @@ npm.cmd run lint
 - Added a Mode B soft paywall: performance metrics remain visible, while the full scientific training plan is blurred and covered for free users.
 - Added a paywall modal and a training-plan overlay with a lock icon, `升級 Pro 版解鎖完整科學課表`, and an `升級 Pro` button.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-14 Gemini Generation Config Hardening
+
+- Added `maxOutputTokens: 8192` alongside `responseMimeType: "application/json"` in both `api/analyze.ts` and `server/gemini.ts`.
+- Kept official JSON mode enabled for the SDK and local REST Gemini calls.
+- Simplified Gemini response parsing to direct JSON-mode parsing after minimal code-fence cleanup.
+- Parse failures now log `Raw Gemini Response:` before throwing a clear backend error.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

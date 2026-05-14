@@ -442,6 +442,7 @@ async function callGeminiWithCatch(
       config: {
         systemInstruction: input.systemInstruction,
         responseMimeType: "application/json",
+        maxOutputTokens: 8192,
       },
     });
   } catch (error) {
@@ -876,28 +877,15 @@ function stripCodeFence(value: string) {
     .trim();
 }
 
-function extractJsonBlock(value: string) {
-  let cleanText = stripCodeFence(value);
-  const startIndex = cleanText.indexOf("{");
-  const endIndex = cleanText.lastIndexOf("}");
-
-  if (startIndex !== -1 && endIndex !== -1 && endIndex >= startIndex) {
-    cleanText = cleanText.substring(startIndex, endIndex + 1);
-  }
-
-  return cleanText;
-}
-
 function parseGeminiJsonResponse(text: string): AnalysisReport {
-  const cleanText = extractJsonBlock(text);
+  const cleanText = stripCodeFence(text);
 
   try {
     return JSON.parse(cleanText) as AnalysisReport;
   } catch (error) {
-    console.error("[Gemini JSON Parse Error] Failed to parse sanitized response:", error);
-    console.error("[Gemini JSON Parse Error] Raw Gemini response text:", text);
-    console.error("[Gemini JSON Parse Error] Sanitized Gemini response text:", cleanText);
-    throw new Error("Gemini returned invalid JSON after sanitization. Please retry or inspect server logs for the raw response.");
+    console.error("[Gemini JSON Parse Error] Failed to parse JSON mode response:", error);
+    console.error("Raw Gemini Response:", text);
+    throw new Error("Gemini returned invalid JSON despite JSON mode. Please retry or inspect server logs for the raw response.");
   }
 }
 
