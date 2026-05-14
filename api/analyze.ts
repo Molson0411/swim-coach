@@ -13,6 +13,8 @@ import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { getAdminDb, getAdminStorageBucket } from "../lib/firebase-admin.js";
+import { FINA_BASE_TIMES, type FinaEvent, type FinaGender } from "../utils/finaBaseTimes.js";
+import { parseTimeToSeconds } from "../utils/timeParser.js";
 
 type AnalysisMode = "A" | "B";
 
@@ -505,14 +507,14 @@ function normalizeAnalysisReport(report: AnalysisReport, inputs: AnalyzeInputs):
     return report;
   }
 
-  const calculatedMetrics = calculateEfficiencyMetrics(inputs.raceEntries);
+  const calculatedMetrics = calculateEfficiencyMetrics(inputs.raceEntries, inputs.athleteProfile);
   const metrics = report.performanceMetrics || report.metrics;
   if (!metrics) {
     const fallbackMetrics = {
       swolf: calculatedMetrics.swolf,
       dps: calculatedMetrics.dps,
       css: calculatedMetrics.css,
-      finaPoints: 0,
+      finaPoints: calculatedMetrics.finaPoints || 0,
       analysis: buildEfficiencyAnalysisFallback(calculatedMetrics),
     };
 
@@ -529,6 +531,7 @@ function normalizeAnalysisReport(report: AnalysisReport, inputs: AnalyzeInputs):
     swolf: calculatedMetrics.swolf,
     dps: calculatedMetrics.dps,
     css: calculatedMetrics.css,
+    finaPoints: calculatedMetrics.finaPoints || 0,
     analysis: ensureEfficiencyDataMessage(metrics.analysis, calculatedMetrics),
   };
 
@@ -546,12 +549,32 @@ type EfficiencyMetricsResult = {
   dps: number | null;
   css: string | null;
   totalSeconds: number | null;
+  finaPoints: number | null;
+  finaPointEntries: FinaPointEntry[];
   cssReason: string | null;
 };
 
-function calculateEfficiencyMetrics(entries: AnalyzeInputs["raceEntries"]): EfficiencyMetricsResult {
+type FinaPointEntry = {
+  index: number;
+  event: string;
+  normalizedEvent: FinaEvent | null;
+  gender: FinaGender | null;
+  timeSeconds: number | null;
+  points: number | null;
+  reason?: string;
+};
+
+function calculateEfficiencyMetrics(
+  entries: AnalyzeInputs["raceEntries"],
+  athleteProfile?: AnalyzeInputs["athleteProfile"]
+): EfficiencyMetricsResult {
   const totalSeconds = entries?.[0] ? parseRaceTimeToSeconds(entries[0].time) : null;
   const hasCompleteData = hasCompleteLapData(entries);
+  const finaPointEntries = calculateFinaPointEntries(entries, athleteProfile);
+  const validFinaPoints = finaPointEntries
+    .map((entry) => entry.points)
+    .filter((points): points is number => typeof points === "number" && Number.isFinite(points));
+  const finaPoints = validFinaPoints.length > 0 ? Math.round(average(validFinaPoints) || 0) : null;
 
   if (!entries || entries.length === 0 || !hasCompleteData) {
     return {
@@ -560,6 +583,8 @@ function calculateEfficiencyMetrics(entries: AnalyzeInputs["raceEntries"]): Effi
       dps: null,
       css: null,
       totalSeconds,
+      finaPoints,
+      finaPointEntries,
       cssReason: "未完整填寫每趟分段秒數與划手數，CSS、SWOLF 與 DPS 不進行推算。",
     };
   }
@@ -583,6 +608,8 @@ function calculateEfficiencyMetrics(entries: AnalyzeInputs["raceEntries"]): Effi
     dps: roundToTwo(dps),
     css: cssSeconds === null ? null : `${roundToTwo(cssSeconds).toFixed(2)} sec/100m`,
     totalSeconds,
+    finaPoints,
+    finaPointEntries,
     cssReason: cssSeconds === null ? "未同時提供 400m 與 200m 成績，CSS 無法精準分析。" : null,
   };
 }
@@ -620,21 +647,111 @@ function calculateCssSeconds(entries: NonNullable<AnalyzeInputs["raceEntries"]>)
   return (time400 - time200) / 2;
 }
 
+function calculateFinaPointEntries(
+  entries: AnalyzeInputs["raceEntries"],
+  athleteProfile?: AnalyzeInputs["athleteProfile"]
+): FinaPointEntry[] {
+  const gender = athleteProfile?.gender === "M" ? "Male" : athleteProfile?.gender === "F" ? "Female" : null;
+
+  return (entries || []).map((entry, index) => {
+    const normalizedEvent = normalizeFinaEvent(entry.event);
+    const timeSeconds = parseRaceTimeToSeconds(entry.time);
+
+    if (!gender) {
+      return {
+        index,
+        event: entry.event,
+        normalizedEvent,
+        gender,
+        timeSeconds,
+        points: null,
+        reason: "athleteProfile.gender is missing.",
+      };
+    }
+
+    if (!normalizedEvent) {
+      return {
+        index,
+        event: entry.event,
+        normalizedEvent,
+        gender,
+        timeSeconds,
+        points: null,
+        reason: "event is not available in 2026 LCM FINA base times.",
+      };
+    }
+
+    if (timeSeconds === null) {
+      return {
+        index,
+        event: entry.event,
+        normalizedEvent,
+        gender,
+        timeSeconds,
+        points: null,
+        reason: "race time could not be parsed.",
+      };
+    }
+
+    return {
+      index,
+      event: entry.event,
+      normalizedEvent,
+      gender,
+      timeSeconds,
+      points: calculateFinaPoints(normalizedEvent, gender, timeSeconds),
+    };
+  });
+}
+
+function calculateFinaPoints(event: FinaEvent, gender: FinaGender, timeSeconds: number) {
+  const baseTime = FINA_BASE_TIMES.LCM[gender][event];
+  return Math.round(1000 * Math.pow(baseTime / timeSeconds, 3));
+}
+
+function normalizeFinaEvent(event: string | undefined): FinaEvent | null {
+  const text = normalizeText(event);
+  if (!text) {
+    return null;
+  }
+
+  const distance = extractRaceDistance(text);
+  const stroke = inferChineseStrokeName(text);
+  if (!distance || !stroke) {
+    return null;
+  }
+
+  const eventKey = `${distance}公尺${stroke}` as FinaEvent;
+  return eventKey in FINA_BASE_TIMES.LCM.Female ? eventKey : null;
+}
+
+function inferChineseStrokeName(value: string) {
+  const text = value.toLowerCase();
+  if (text.includes("自由式") || text.includes("捷泳") || text.includes("freestyle") || /\bfree\b/.test(text)) {
+    return "自由式";
+  }
+  if (text.includes("仰式") || text.includes("背泳") || text.includes("backstroke") || /\bback\b/.test(text)) {
+    return "仰式";
+  }
+  if (text.includes("蛙式") || text.includes("breaststroke") || /\bbreast\b/.test(text)) {
+    return "蛙式";
+  }
+  if (text.includes("蝶式") || text.includes("butterfly") || /\bfly\b/.test(text)) {
+    return "蝶式";
+  }
+  if (text.includes("混合式") || text.includes("個人混合") || text.includes("individual medley") || /\bim\b/.test(text) || text.includes("medley")) {
+    return "混合式";
+  }
+  return null;
+}
+
 function parseRaceTimeToSeconds(value: string | undefined) {
   const text = normalizeText(value);
   if (!text) {
     return null;
   }
 
-  const parts = text.split(":").map((part) => part.trim());
-  if (parts.some((part) => !part)) {
-    return null;
-  }
-
-  const total = parts.reduce((seconds, part) => {
-    const parsed = Number(part);
-    return Number.isFinite(parsed) ? seconds * 60 + parsed : Number.NaN;
-  }, 0);
+  const total = parseTimeToSeconds(text);
 
   return Number.isFinite(total) && total > 0 ? total : null;
 }
@@ -667,7 +784,7 @@ function buildEfficiencyAnalysisFallback(metrics: EfficiencyMetricsResult) {
     : `本次總秒數為 ${metrics.totalSeconds.toFixed(2)} 秒，仍可用於配速與 FINA 積分方向的討論。`;
 
   return metrics.hasCompleteData
-    ? `${totalSummary} SWOLF=${metrics.swolf}, DPS=${metrics.dps}, CSS=${metrics.css || "無法精準計算"}。`
+    ? `${totalSummary} SWOLF=${metrics.swolf}, DPS=${metrics.dps}, CSS=${metrics.css || "無法精準計算"}，FINA Points=${metrics.finaPoints ?? "無法計算"}。`
     : `${totalSummary}\n\n${INSUFFICIENT_EFFICIENCY_DATA_MESSAGE}`;
 }
 
@@ -687,6 +804,10 @@ function mergeMissingData(existing: string[] | undefined, metrics: EfficiencyMet
   } else if (metrics.cssReason) {
     missingData.push(metrics.cssReason);
   }
+
+  metrics.finaPointEntries
+    .filter((entry) => entry.points === null && entry.reason)
+    .forEach((entry) => missingData.push(`FINA Points entry ${entry.index + 1}: ${entry.reason}`));
 
   return Array.from(new Set(missingData));
 }
@@ -1076,6 +1197,7 @@ function formatEfficiencyMetricsForPrompt(metrics: EfficiencyMetricsResult) {
     `serverCalculatedSWOLF: ${metrics.swolf ?? "null"}`,
     `serverCalculatedDPS: ${metrics.dps ?? "null"}`,
     `serverCalculatedCSS: ${metrics.css ?? "null"}`,
+    `serverCalculatedFINAPointsOverall: ${metrics.finaPoints ?? "null"}`,
     `serverParsedTotalSeconds: ${metrics.totalSeconds ?? "null"}`,
   ].join("\n");
 
@@ -1084,7 +1206,23 @@ function formatEfficiencyMetricsForPrompt(metrics: EfficiencyMetricsResult) {
 ${computedValues}
 - 若為 true：請正常進行 SWOLF 與 DPS 的流體力學數據深度解析，並直接引用 serverCalculatedSWOLF、serverCalculatedDPS 與 serverCalculatedCSS。
 - 若為 false：嚴禁捏造數據進行分析。請將 performanceMetrics.swolf、performanceMetrics.dps、performanceMetrics.css 設為 null。在 performanceMetrics.analysis 中，請專注於配速與 FINA 積分的分析，並在該段落的結尾直接輸出以下標準化字串作為總結：「${INSUFFICIENT_EFFICIENCY_DATA_MESSAGE}」
-- CSS 補充約束：若 serverCalculatedCSS 為 null，請明確說明未同時填寫 400m 與 200m 距離成績時無法進行 CSS 精準分析，禁止自行估算。`;
+- CSS 補充約束：若 serverCalculatedCSS 為 null，請明確說明未同時填寫 400m 與 200m 距離成績時無法進行 CSS 精準分析，禁止自行估算。
+
+${formatFinaPointsForPrompt(metrics.finaPointEntries)}`;
+}
+
+function formatFinaPointsForPrompt(entries: FinaPointEntry[]) {
+  const rows = entries.length > 0
+    ? entries.map((entry) => {
+      const label = `第${entry.index + 1}趟 (${entry.normalizedEvent || entry.event})`;
+      return `${label}：${entry.points === null ? "null" : `${entry.points} 分`}，時間=${entry.timeSeconds ?? "null"} 秒，性別=${entry.gender || "null"}${entry.reason ? `，原因=${entry.reason}` : ""}`;
+    }).join("\n")
+    : "未提供可計算的 raceEntries。";
+
+  return `【系統強制提供之 FINA 積分數據】
+${rows}
+
+【絕對約束】以上 FINA 積分已由系統後端使用 2026 World Aquatics LCM 官方基準時間與公式 1000 × (BaseTime / SwimTime)^3 精確算出。你【絕對不可以】自己重新計算、估算或捏造任何 FINA 積分數值。請直接引用上述非 null 數字；若為 null，必須說明該項缺少性別、時間或官方基準項目而無法計算，並專注於評估這些積分所代表的體能衰退趨勢與競爭力等級。`;
 }
 
 function formatAthleteProfile(profile: AnalyzeInputs["athleteProfile"]) {

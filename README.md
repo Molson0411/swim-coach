@@ -846,3 +846,12 @@ npm.cmd run lint
 - Injected biomechanics and physiology theory into the Mode B prompt, including Active Drag, FSA, SR/DPS balance, SWOLF, DPS, and CSS interpretation.
 - Added the required allowed-blank guardrail so incomplete lap data appends the standardized insufficient-data message and prevents hallucinated efficiency metrics.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-14 Markdown Report Rendering and FINA Guardrails
+
+- Added a safe React markdown-like renderer for report text, supporting `**bold**`, bullet lists, paragraph whitespace, and existing `[MM:SS]` timestamp seek buttons without `dangerouslySetInnerHTML`.
+- Applied the renderer to Mode B `Efficiency Analysis` and shared `Coach's Growth Advice` blocks.
+- Added `utils/timeParser.ts` with `parseTimeToSeconds`, supporting both raw seconds and `MM:SS.xx` style race times.
+- Updated `api/analyze.ts` to batch-calculate FINA Points for every Mode B race entry before calling Gemini, using the 2026 World Aquatics LCM base-time constants.
+- Injected a strict prompt block that forbids Gemini from recalculating or inventing FINA Points and requires direct use of backend-provided values.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

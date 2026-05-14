@@ -444,6 +444,102 @@ function TimestampText({
   return <>{parseTextWithTimestamps(text, onSeek)}</>;
 }
 
+function renderInlineReportMarkdown(text: string, onSeek: (timestamp: string) => void, keyPrefix: string) {
+  const nodes: React.ReactNode[] = [];
+  const pattern = /(\[(\d{2}:\d{2})\]|\*\*([^*]+)\*\*)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+
+    if (match[2]) {
+      const timestamp = match[2];
+      nodes.push(
+        <button
+          key={`${keyPrefix}-time-${timestamp}-${match.index}`}
+          type="button"
+          onClick={() => onSeek(timestamp)}
+          className="mx-1 inline-flex items-center rounded-md bg-[#93B7BE] px-2 py-0.5 align-baseline text-[10px] font-bold leading-none tracking-widest text-[#2D3047] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:scale-95"
+        >
+          [{timestamp}]
+        </button>
+      );
+    } else if (match[3]) {
+      nodes.push(
+        <strong key={`${keyPrefix}-bold-${match.index}`} className="font-bold text-ink">
+          {renderInlineReportMarkdown(match[3], onSeek, `${keyPrefix}-bold-${match.index}`)}
+        </strong>
+      );
+    }
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes;
+}
+
+function RichReportText({
+  text,
+  onSeek,
+}: {
+  text?: string;
+  onSeek: (timestamp: string) => void;
+}) {
+  if (!text) return null;
+
+  const lines = text.split(/\r?\n/);
+  const blocks: React.ReactNode[] = [];
+  let listItems: string[] = [];
+
+  const flushList = () => {
+    if (listItems.length === 0) return;
+    const listIndex = blocks.length;
+    blocks.push(
+      <ul key={`list-${listIndex}`} className="my-3 list-disc space-y-1 pl-4">
+        {listItems.map((item, index) => (
+          <li key={`list-${listIndex}-${index}`}>
+            {renderInlineReportMarkdown(item, onSeek, `list-${listIndex}-${index}`)}
+          </li>
+        ))}
+      </ul>
+    );
+    listItems = [];
+  };
+
+  lines.forEach((line, index) => {
+    const bulletMatch = line.match(/^\s*[*-]\s+(.+)$/);
+    if (bulletMatch) {
+      listItems.push(bulletMatch[1]);
+      return;
+    }
+
+    flushList();
+
+    if (!line.trim()) {
+      blocks.push(<br key={`break-${index}`} />);
+      return;
+    }
+
+    blocks.push(
+      <React.Fragment key={`line-${index}`}>
+        {renderInlineReportMarkdown(line, onSeek, `line-${index}`)}
+        {index < lines.length - 1 ? '\n' : null}
+      </React.Fragment>
+    );
+  });
+
+  flushList();
+
+  return <>{blocks}</>;
+}
+
 function ModeALinkedPlanText({
   text,
   onSeek,
@@ -2730,9 +2826,9 @@ function AppContent() {
                         <h3 className="text-sm sm:text-xs uppercase tracking-[0.2em] font-bold mb-4 flex items-center gap-2 text-accent">
                           <FileText className="w-4 h-4" /> Efficiency Analysis
                         </h3>
-                        <p className="text-lg sm:text-2xl leading-relaxed text-ink/80 font-serif italic whitespace-pre-wrap">
-                          {"\""}<TimestampText text={modeBMetrics.analysis} onSeek={handleSeek} />{"\""}
-                        </p>
+                        <div className="text-lg sm:text-2xl leading-relaxed text-ink/80 font-serif italic whitespace-pre-wrap">
+                          {"\""}<RichReportText text={modeBMetrics.analysis} onSeek={handleSeek} />{"\""}
+                        </div>
                       </section>
 
                       {report.trainingPlan && (
@@ -2797,9 +2893,9 @@ function AppContent() {
                   <section className="border-t border-ink/10 pt-8 sm:pt-12 mt-8 sm:mt-12">
                     <h3 className="text-[10px] sm:text-xs uppercase tracking-[0.2em] font-bold mb-5 sm:mb-8 text-accent">Coach's Growth Advice</h3>
                     <div className="bg-accent/5 p-6 sm:p-10 rounded-[2rem] sm:rounded-[2.5rem] border border-accent/10">
-                      <p className="text-base sm:text-xl leading-relaxed italic font-serif text-ink/80 whitespace-pre-wrap">
-                        <TimestampText text={report.growthAdvice} onSeek={handleSeek} />
-                      </p>
+                      <div className="text-base sm:text-xl leading-relaxed italic font-serif text-ink/80 whitespace-pre-wrap">
+                        <RichReportText text={report.growthAdvice} onSeek={handleSeek} />
+                      </div>
                     </div>
                   </section>
 
