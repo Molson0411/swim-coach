@@ -924,3 +924,11 @@ npm.cmd run lint
 - Added an entry log for checkout requests: `成功接收到結帳請求:`.
 - Kept the frontend checkout request pointed at `http://localhost:3001/api/payment/checkout` so the client and Express server ports match.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-18 ECPay Webhook Firestore Write Hardening
+
+- Added step-by-step webhook logs for received `RtnCode`, `CustomField1` uid, missing checksum, checksum mismatch, and successful Pro unlocks.
+- Changed webhook user subscription updates to `set(..., { merge: true })` using Firebase Admin SDK so missing fields/documents are created instead of failing on `update`.
+- Removed the hard stop when `payment_orders/{MerchantTradeNo}` does not already exist; valid paid webhooks now still unlock `users/{uid}.subscriptionPlan`.
+- Wrapped Firestore writes in a nested `try...catch` so valid ECPay notifications still respond with `1|OK` even if database writes fail and log `[Webhook Firebase 寫入失敗]:`.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
