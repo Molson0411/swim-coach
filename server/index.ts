@@ -2,6 +2,8 @@ import "dotenv/config";
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import paymentCheckoutHandler from "../api/payment/checkout.js";
+import paymentWebhookHandler from "../api/payment/webhook.js";
 import { analyzeWithGemini, startGeminiFileUpload } from "./gemini";
 import { getAdminDb, verifyFirebaseToken } from "../lib/firebase-admin.js";
 import type { AnalysisMode } from "../src/types";
@@ -14,6 +16,7 @@ const ANALYZE_API_TIMEOUT_MS = 180_000;
 const ALLOWED_REPORT_STATUSES = new Set(["active", "deleted", "archived"]);
 
 app.use(express.json({ limit: "25mb" }));
+app.use(express.urlencoded({ extended: false }));
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -32,6 +35,15 @@ app.use((req, res, next) => {
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
+});
+
+app.all("/api/payment/checkout", (req, res, next) => {
+  console.log("成功接收到結帳請求:", req.body);
+  Promise.resolve(paymentCheckoutHandler(req as never, res as never)).catch(next);
+});
+
+app.all("/api/payment/webhook", (req, res, next) => {
+  Promise.resolve(paymentWebhookHandler(req as never, res as never)).catch(next);
 });
 
 app.post("/api/files/start-upload", async (req, res) => {

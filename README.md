@@ -915,3 +915,12 @@ npm.cmd run lint
 - Updated `.env.example` so local `VITE_API_BASE_URL` points to `http://localhost:3001`.
 - Confirmed the existing backend CORS middleware allows `http://localhost:3000` and other localhost origins through the current localhost regex allow-list.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-18 Local ECPay Route Mount Fix
+
+- Mounted the existing ECPay checkout handler on the local Express server at `POST /api/payment/checkout`, fixing the `404 Not Found` from `http://localhost:3001/api/payment/checkout`.
+- Mounted the ECPay webhook handler at `/api/payment/webhook` for local parity with the deployed API structure.
+- Added `express.urlencoded({ extended: false })` so form-urlencoded ECPay webhook payloads can be parsed by the local Node.js server.
+- Added an entry log for checkout requests: `成功接收到結帳請求:`.
+- Kept the frontend checkout request pointed at `http://localhost:3001/api/payment/checkout` so the client and Express server ports match.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

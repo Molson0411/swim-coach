@@ -1,11 +1,5 @@
 import { auth } from "../firebase";
 
-const LOCAL_PAYMENT_API_BASE_URL = "http://localhost:3001";
-const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL
-  || (import.meta.env.DEV ? LOCAL_PAYMENT_API_BASE_URL : "")
-).replace(/\/$/, "");
-
 type EcpayCheckoutResponse = {
   checkoutUrl: string;
   params: Record<string, string | number>;
@@ -19,7 +13,8 @@ export async function startEcpayCheckout(uid: string) {
     throw new Error("請先登入 Google 帳戶。");
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/payment/checkout`, {
+  const backendUrl = "http://localhost:3001";
+  const response = await fetch(`${backendUrl}/api/payment/checkout`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
