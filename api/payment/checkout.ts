@@ -13,7 +13,6 @@ import {
 
 type CheckoutBody = {
   uid?: string;
-  plan?: string;
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -27,15 +26,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const authUser = await verifyFirebaseToken(req);
-    const { uid, plan } = (req.body || {}) as CheckoutBody;
+    const { uid } = (req.body || {}) as CheckoutBody;
+    const plan = "pro";
 
     if (!uid || uid !== authUser.uid) {
       res.status(403).json({ error: "UID_MISMATCH", message: "付款使用者與登入帳號不一致。" });
-      return;
-    }
-
-    if (plan !== "pro") {
-      res.status(400).json({ error: "INVALID_PLAN", message: "目前僅支援 Pro 升級方案。" });
       return;
     }
 

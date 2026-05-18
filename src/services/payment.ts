@@ -7,7 +7,9 @@ type EcpayCheckoutResponse = {
   params: Record<string, string | number>;
 };
 
-export async function startEcpayCheckout(uid: string, plan: "pro") {
+const ECPAY_STAGE_CHECKOUT_URL = "https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5";
+
+export async function startEcpayCheckout(uid: string) {
   const token = await auth.currentUser?.getIdToken();
   if (!token) {
     throw new Error("請先登入 Google 帳戶。");
@@ -19,7 +21,7 @@ export async function startEcpayCheckout(uid: string, plan: "pro") {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ uid, plan }),
+    body: JSON.stringify({ uid }),
   });
 
   const result = await response.json().catch(() => null) as EcpayCheckoutResponse | { message?: string; error?: string } | null;
@@ -28,7 +30,7 @@ export async function startEcpayCheckout(uid: string, plan: "pro") {
     throw new Error(errorResult?.message || errorResult?.error || "建立綠界訂單失敗。");
   }
 
-  submitEcpayForm(result.checkoutUrl, result.params);
+  submitEcpayForm(result.checkoutUrl || ECPAY_STAGE_CHECKOUT_URL, result.params);
 }
 
 function isEcpayCheckoutResponse(value: unknown): value is EcpayCheckoutResponse {

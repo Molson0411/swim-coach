@@ -1377,7 +1377,7 @@ function AppContent() {
 
     setIsPaymentRedirecting(true);
     try {
-      await startEcpayCheckout(user.uid, 'pro');
+      await startEcpayCheckout(user.uid);
     } catch (error) {
       console.error('[ECPay Checkout] Failed to start checkout:', error);
       toast.error(error instanceof Error ? error.message : '建立綠界訂單失敗。');

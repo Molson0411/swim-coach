@@ -899,3 +899,11 @@ npm.cmd run lint
 - Updated the Pro paywall button to start the ECPay checkout flow instead of local-only modal close behavior.
 - Documented required ECPay server environment variables in `.env.example`.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-18 ECPay Spec Alignment
+
+- Aligned the checkout payload with the requested ECPay PWA flow: frontend sends `uid`, backend fixes the Pro plan internally.
+- Set the Pro checkout amount to `300`.
+- Locked the default checkout action to the ECPay stage cashier URL: `https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5`.
+- Kept `MerchantTradeNo`, `MerchantTradeDate`, required All-in-One parameters, and SHA256 upper-case `CheckMacValue` generation in the backend.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

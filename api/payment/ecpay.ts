@@ -2,7 +2,8 @@ import { createHash, randomBytes } from "node:crypto";
 
 export type EcpayParams = Record<string, string | number>;
 
-export const ECPAY_PRO_PLAN_AMOUNT = 990;
+export const ECPAY_PRO_PLAN_AMOUNT = 300;
+export const ECPAY_STAGE_CHECKOUT_URL = "https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5";
 
 export function getEcpayConfig() {
   const merchantId = process.env.ECPAY_MERCHANT_ID;
@@ -13,17 +14,11 @@ export function getEcpayConfig() {
     throw new Error("ECPay environment variables are missing. Required: ECPAY_MERCHANT_ID, ECPAY_HASH_KEY, ECPAY_HASH_IV.");
   }
 
-  const env = process.env.ECPAY_ENV === "production" ? "production" : "stage";
-  const checkoutUrl = process.env.ECPAY_CHECKOUT_URL
-    || (env === "production"
-      ? "https://payment.ecpay.com.tw/Cashier/AioCheckOut/V5"
-      : "https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5");
-
   return {
     merchantId,
     hashKey,
     hashIv,
-    checkoutUrl,
+    checkoutUrl: ECPAY_STAGE_CHECKOUT_URL,
   };
 }
 
