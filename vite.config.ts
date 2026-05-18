@@ -26,7 +26,7 @@ export default defineConfig(({mode}) => {
       allowedHosts: true,
       proxy: {
         '/api': {
-          target: env.VITE_API_BASE_URL || 'http://127.0.0.1:8787',
+          target: env.VITE_API_BASE_URL || 'http://127.0.0.1:3001',
           changeOrigin: true,
         },
       },

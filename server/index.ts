@@ -7,7 +7,7 @@ import { getAdminDb, verifyFirebaseToken } from "../lib/firebase-admin.js";
 import type { AnalysisMode } from "../src/types";
 
 const app = express();
-const port = Number(process.env.PORT || 8787);
+const port = Number(process.env.PORT || 3001);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distPath = path.resolve(__dirname, "../dist");
 const ANALYZE_API_TIMEOUT_MS = 180_000;

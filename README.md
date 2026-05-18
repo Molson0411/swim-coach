@@ -907,3 +907,11 @@ npm.cmd run lint
 - Locked the default checkout action to the ECPay stage cashier URL: `https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5`.
 - Kept `MerchantTradeNo`, `MerchantTradeDate`, required All-in-One parameters, and SHA256 upper-case `CheckMacValue` generation in the backend.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-18 Local Payment API Port Fix
+
+- Updated the ECPay checkout frontend service to use `http://localhost:3001` as the local development API fallback instead of calling the Vite frontend origin.
+- Changed the Express API default port to `3001` and aligned the Vite `/api` proxy fallback with the same backend port.
+- Updated `.env.example` so local `VITE_API_BASE_URL` points to `http://localhost:3001`.
+- Confirmed the existing backend CORS middleware allows `http://localhost:3000` and other localhost origins through the current localhost regex allow-list.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
