@@ -889,3 +889,13 @@ npm.cmd run lint
 - Mode A now uploads immediately after file selection, displays a progress bar and percentage, and shows an upload-complete badge once `downloadURL` is available.
 - Analysis requests and Firestore `reports` writes now reuse the uploaded `videoUrl` instead of re-uploading the file.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-18 ECPay Payment Migration
+
+- Added `api/payment/checkout.ts` to create ECPay All-in-One Credit orders, generate `CheckMacValue`, and persist pending orders in Firestore.
+- Added `api/payment/webhook.ts` to verify ECPay webhook `CheckMacValue`, mark successful orders as paid, and unlock `users/{uid}.subscriptionPlan = "pro"`.
+- Added shared ECPay helpers for ordered parameter hashing, URL encoding, SHA256 upper-case checksum generation, and form-urlencoded webhook body normalization.
+- Added frontend `startEcpayCheckout` service that requests checkout params and auto-submits a hidden form to the official ECPay cashier page.
+- Updated the Pro paywall button to start the ECPay checkout flow instead of local-only modal close behavior.
+- Documented required ECPay server environment variables in `.env.example`.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.

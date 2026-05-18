@@ -32,6 +32,7 @@ import {
   Lock
 } from 'lucide-react';
 import { AnalyzeApiError, analyzeSwim, updateAnalysisReportStatus, uploadVideoForAnalysis, type StorageUploadedFile } from './services/gemini';
+import { startEcpayCheckout } from './services/payment';
 import { AnalysisReport, AnalysisMode, AthleteProfile } from './types';
 import { cn } from './lib/utils';
 import { Toaster, toast } from 'sonner';
@@ -1100,9 +1101,13 @@ function AthleteProfileModal({
 function PaywallModal({
   isOpen,
   onClose,
+  onUpgrade,
+  isSubmitting,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  onUpgrade: () => void;
+  isSubmitting: boolean;
 }) {
   return (
     <AnimatePresence>
@@ -1131,8 +1136,9 @@ function PaywallModal({
             </p>
             <button
               type="button"
-              onClick={onClose}
-              className="mt-6 w-full rounded-full bg-[#5A1F2E] px-5 py-4 text-[11px] font-bold uppercase tracking-widest text-[#F8D36B] shadow-lg shadow-[#5A1F2E]/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#2D3047] hover:text-white hover:shadow-lg active:scale-95"
+              onClick={onUpgrade}
+              disabled={isSubmitting}
+              className="mt-6 w-full rounded-full bg-[#5A1F2E] px-5 py-4 text-[11px] font-bold uppercase tracking-widest text-[#F8D36B] shadow-lg shadow-[#5A1F2E]/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#2D3047] hover:text-white hover:shadow-lg active:scale-95 disabled:cursor-not-allowed disabled:bg-gray-400 disabled:text-white disabled:shadow-none disabled:hover:translate-y-0"
             >
               升級 Pro
             </button>
@@ -1253,6 +1259,7 @@ function AppContent() {
   ];
   const [user, setUser] = useState<User | null>(null);
   const [subscriptionPlan, setSubscriptionPlan] = useState<SubscriptionPlan>('free');
+  const [isPaymentRedirecting, setIsPaymentRedirecting] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
@@ -1360,6 +1367,22 @@ function AppContent() {
   const handleOpenProfileEditor = () => {
     setPendingModeBAfterProfile(false);
     setShowProfileModal(true);
+  };
+
+  const handleUpgradePro = async () => {
+    if (!user) {
+      toast.error('請先登入 Google 帳戶。');
+      return;
+    }
+
+    setIsPaymentRedirecting(true);
+    try {
+      await startEcpayCheckout(user.uid, 'pro');
+    } catch (error) {
+      console.error('[ECPay Checkout] Failed to start checkout:', error);
+      toast.error(error instanceof Error ? error.message : '建立綠界訂單失敗。');
+      setIsPaymentRedirecting(false);
+    }
   };
 
   const handleSaveAthleteProfile = async (profile: AthleteProfile) => {
@@ -2029,7 +2052,12 @@ function AppContent() {
       />
       <PaywallModal
         isOpen={showPaywallModal}
-        onClose={() => setShowPaywallModal(false)}
+        onClose={() => {
+          setShowPaywallModal(false);
+          setIsPaymentRedirecting(false);
+        }}
+        onUpgrade={handleUpgradePro}
+        isSubmitting={isPaymentRedirecting}
       />
       {/* Header */}
       <header className="border-b border-ink/10 p-4 md:p-6 flex flex-col sm:flex-row justify-between items-center bg-white/80 backdrop-blur-md sticky top-0 z-50 gap-4 sm:gap-0">
