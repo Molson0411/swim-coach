@@ -36,56 +36,62 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    try {
-      const db = await getAdminDb();
-      const orderRef = db.collection("payment_orders").doc(merchantTradeNo);
-      const uid = payload.CustomField1;
-      const plan = payload.CustomField2 || "pro";
+    const db = await getAdminDb();
+    console.log("[Webhook] Firebase Admin Firestore 已初始化");
 
-      if (payload.RtnCode === "1") {
-        if (!uid) {
-          console.error("[Webhook Firebase 寫入失敗]: 缺少 CustomField1 uid", payload);
-        } else {
-          await orderRef.set({
-            uid,
-            plan,
-            provider: "ecpay",
-            merchantTradeNo,
-            amount: Number(payload.TradeAmt || 0),
-            status: "paid",
-            webhookPayload: payload,
-            paidAt: FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
-          }, { merge: true });
+    if (payload.RtnCode !== "1") {
+      await db.collection("payment_orders").doc(merchantTradeNo).set({
+        uid: payload.CustomField1 || null,
+        plan: payload.CustomField2 || "pro",
+        provider: "ecpay",
+        merchantTradeNo,
+        amount: Number(payload.TradeAmt || 0),
+        status: "failed",
+        webhookPayload: payload,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
 
-          await db.collection("users").doc(uid).set({
-            subscriptionPlan: plan,
-            subscriptionProvider: "ecpay",
-            subscriptionTradeNo: merchantTradeNo,
-            subscriptionUpdatedAt: FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
-          }, { merge: true });
-
-          console.log(`[Webhook 成功] 已將用戶 ${uid} 升級為 ${plan}`);
-        }
-      } else {
-        await orderRef.set({
-          uid,
-          plan,
-          provider: "ecpay",
-          merchantTradeNo,
-          amount: Number(payload.TradeAmt || 0),
-          status: "failed",
-          webhookPayload: payload,
-          updatedAt: FieldValue.serverTimestamp(),
-        }, { merge: true });
-        console.log("[Webhook 記錄] 非付款成功狀態，已記錄訂單結果:", payload.RtnCode);
-      }
-    } catch (error) {
-      console.error("[Webhook Firebase 寫入失敗]:", error);
+      console.log("[Webhook 記錄] 非付款成功狀態，已記錄訂單結果:", payload.RtnCode);
+      res.status(200).send("1|OK");
+      return;
     }
 
-    res.status(200).send("1|OK");
+    const uid = payload.CustomField1?.trim();
+    if (!uid) {
+      console.error("[Webhook 寫入失敗]: 缺少 CustomField1 uid", payload);
+      res.status(400).send("0|Missing UID");
+      return;
+    }
+
+    console.log(`[Webhook] 準備將用戶 ${uid} 升級為 PRO...`);
+
+    try {
+      await db.collection("users").doc(uid).set({
+        subscriptionPlan: "pro",
+        subscriptionProvider: "ecpay",
+        subscriptionTradeNo: merchantTradeNo,
+        subscriptionUpdatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      await db.collection("payment_orders").doc(merchantTradeNo).set({
+        uid,
+        plan: "pro",
+        provider: "ecpay",
+        merchantTradeNo,
+        amount: Number(payload.TradeAmt || 0),
+        status: "paid",
+        webhookPayload: payload,
+        paidAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      console.log(`[Webhook 成功] 用戶 ${uid} 已寫入 Firestore`);
+      res.status(200).send("1|OK");
+    } catch (error) {
+      console.error("[Webhook 寫入失敗]:", error);
+      res.status(500).send("0|Error");
+    }
   } catch (error) {
     console.error("[ECPay Webhook] Failed to process webhook:", error);
     res.status(500).send("0|Server Error");

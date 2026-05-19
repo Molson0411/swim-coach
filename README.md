@@ -964,3 +964,11 @@ npm.cmd run lint
 - Logs now include `[實時監聽觸發] 收到最新使用者資料:` and `[實時監聽觸發] 目前的訂閱方案為:` so Pro entitlement updates can be traced from Firestore into React state.
 - Added a missing-document log: `[實時監聽觸發] 找不到該使用者的文件`.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-19 ECPay Webhook Admin Write Refactor
+
+- Refactored `api/payment/webhook.ts` so verified paid ECPay notifications write directly to `users/{CustomField1}` through the Firebase Admin Firestore client.
+- Forced successful payments to set `subscriptionPlan: "pro"` with `set(..., { merge: true })`, ensuring the field is created or overwritten even when the user document already exists with partial data.
+- Added explicit logs for Firebase Admin initialization, upgrade preparation, successful Firestore writes, missing UID, and write failures.
+- Changed paid-notification write failures to return `0|Error` with HTTP 500 so Firestore permission/configuration failures are visible instead of being swallowed.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
