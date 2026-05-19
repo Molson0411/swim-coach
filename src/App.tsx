@@ -35,6 +35,7 @@ import { AnalyzeApiError, analyzeSwim, updateAnalysisReportStatus, uploadVideoFo
 import { startEcpayCheckout } from './services/payment';
 import { AnalysisReport, AnalysisMode, AthleteProfile } from './types';
 import { cn } from './lib/utils';
+import { ProBadge } from './components/common/ProBadge';
 import { Toaster, toast } from 'sonner';
 import {
   auth,
@@ -49,7 +50,7 @@ import {
   OperationType
 } from './firebase';
 import { onAuthStateChanged, signInWithPopup, User } from 'firebase/auth';
-import { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc, updateDoc, Timestamp, getDocs, limit, getDoc, setDoc } from 'firebase/firestore';
+import { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc, updateDoc, Timestamp, getDocs, limit, setDoc } from 'firebase/firestore';
 
 type TrainingCalendarRecord = {
   id: string;
@@ -1492,16 +1493,20 @@ function AppContent() {
 
   useEffect(() => {
     let isMounted = true;
+    let unsubscribeUserDoc: (() => void) | undefined;
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       if (!isMounted) return;
+      unsubscribeUserDoc?.();
+      unsubscribeUserDoc = undefined;
       setUser(u);
       setIsAuthReady(true);
       if (u) {
         setIsSigningIn(false);
         setIsProfileLoading(true);
         setShowProfileModal(true);
-        getDoc(doc(db, 'users', u.uid))
-          .then((snapshot) => {
+        unsubscribeUserDoc = onSnapshot(
+          doc(db, 'users', u.uid),
+          (snapshot) => {
             if (!isMounted) return;
             const data = snapshot.data();
             const cloudGender = data?.gender;
@@ -1519,17 +1524,16 @@ function AppContent() {
               setPendingModeBAfterProfile(false);
               setShowProfileModal(true);
             }
-          })
-          .catch((error) => {
+            setIsProfileLoading(false);
+          },
+          (error) => {
             if (!isMounted) return;
             console.error('[Athlete Profile] Failed to load cloud profile:', error);
             handleFirestoreError(error, OperationType.GET, 'users');
             setShowProfileModal(false);
-          })
-          .finally(() => {
-            if (!isMounted) return;
             setIsProfileLoading(false);
-          });
+          }
+        );
       } else {
         setAthleteProfile(createDefaultAthleteProfile());
         setSubscriptionPlan('free');
@@ -1559,6 +1563,7 @@ function AppContent() {
 
     return () => {
       isMounted = false;
+      unsubscribeUserDoc?.();
       unsubscribe();
     };
   }, []);
@@ -2077,7 +2082,10 @@ function AppContent() {
               <div className="text-right">
                 <p className="text-[10px] uppercase tracking-widest font-bold opacity-50 hidden sm:block">Athlete</p>
                 <p className="text-xs font-bold sm:hidden opacity-50 uppercase tracking-widest">Athlete</p>
-                <p className="text-xs font-bold">{user.displayName}</p>
+                <div className="flex items-center justify-end gap-2">
+                  <p className="text-xs font-bold">{user.displayName}</p>
+                  {subscriptionPlan === 'pro' && <ProBadge />}
+                </div>
               </div>
               <button 
                 onClick={() => setActiveTab('history')}

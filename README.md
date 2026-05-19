@@ -949,3 +949,11 @@ npm.cmd run lint
 - Added `ECPAY_ORDER_RESULT_FRONTEND_URL` to `.env.example` for future production frontend redirect configuration.
 - `OrderResultURL` remains part of the checkout params before `generateCheckMacValue`, so it is included in checksum signing and submitted through the existing hidden form.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-19 Realtime Pro Entitlement UI
+
+- Replaced the one-time `getDoc(users/{uid})` profile load in `App.tsx` with a Firestore `onSnapshot` listener so subscription changes from the ECPay webhook update the UI without a page refresh.
+- Added cleanup for both `onAuthStateChanged` and the nested user document snapshot listener to prevent stale listeners after logout or account changes.
+- Created `src/components/common/ProBadge.tsx` as a pill-shaped neon yellow-green `PRO` badge.
+- Displayed `ProBadge` beside the athlete display name whenever `subscriptionPlan === "pro"`.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
