@@ -932,3 +932,11 @@ npm.cmd run lint
 - Removed the hard stop when `payment_orders/{MerchantTradeNo}` does not already exist; valid paid webhooks now still unlock `users/{uid}.subscriptionPlan`.
 - Wrapped Firestore writes in a nested `try...catch` so valid ECPay notifications still respond with `1|OK` even if database writes fail and log `[Webhook Firebase 寫入失敗]:`.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-19 ECPay Order Result Redirect
+
+- Added `OrderResultURL` to the ECPay checkout parameter payload so users are redirected back to the frontend after payment completion.
+- Defaulted the local redirect target to `http://localhost:3000`, with `ECPAY_ORDER_RESULT_URL` available for environment-specific override.
+- Because `OrderResultURL` is inserted before `generateCheckMacValue`, it is included in the ECPay dictionary ordering and SHA256 checksum calculation.
+- Confirmed the frontend hidden form submits every returned checkout parameter through `Object.entries(params)`, so `OrderResultURL` is rendered as a hidden input automatically.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
