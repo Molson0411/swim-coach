@@ -1508,7 +1508,12 @@ function AppContent() {
           doc(db, 'users', u.uid),
           (snapshot) => {
             if (!isMounted) return;
+            if (!snapshot.exists()) {
+              console.log('[實時監聽觸發] 找不到該使用者的文件');
+            }
             const data = snapshot.data();
+            console.log('[實時監聽觸發] 收到最新使用者資料:', data);
+            console.log('[實時監聽觸發] 目前的訂閱方案為:', data?.subscriptionPlan);
             const cloudGender = data?.gender;
             const cloudBirthDate = data?.birthDate;
             const cloudModeAUsage = normalizeModeAUsage(data?.modeAUsage);

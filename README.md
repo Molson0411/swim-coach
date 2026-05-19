@@ -957,3 +957,10 @@ npm.cmd run lint
 - Created `src/components/common/ProBadge.tsx` as a pill-shaped neon yellow-green `PRO` badge.
 - Displayed `ProBadge` beside the athlete display name whenever `subscriptionPlan === "pro"`.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-19 Realtime User Snapshot Debug Logs
+
+- Added browser console logs inside the Firestore `onSnapshot(users/{uid})` callback to print every received user document payload.
+- Logs now include `[實時監聽觸發] 收到最新使用者資料:` and `[實時監聽觸發] 目前的訂閱方案為:` so Pro entitlement updates can be traced from Firestore into React state.
+- Added a missing-document log: `[實時監聽觸發] 找不到該使用者的文件`.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
