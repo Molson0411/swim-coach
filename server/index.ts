@@ -46,6 +46,11 @@ app.all("/api/payment/webhook", (req, res, next) => {
   Promise.resolve(paymentWebhookHandler(req as never, res as never)).catch(next);
 });
 
+app.post("/api/payment/order-result", (_req, res) => {
+  console.log("[支付導回] 收到綠界瀏覽器轉址訊號，準備將用戶導回前端主站");
+  res.redirect(302, process.env.ECPAY_ORDER_RESULT_FRONTEND_URL || "http://localhost:3000");
+});
+
 app.post("/api/files/start-upload", async (req, res) => {
   try {
     const { displayName, mimeType, size } = req.body as {

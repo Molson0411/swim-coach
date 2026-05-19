@@ -37,7 +37,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const config = getEcpayConfig();
     const merchantTradeNo = generateMerchantTradeNo();
     const returnUrl = process.env.ECPAY_RETURN_URL;
-    const orderResultUrl = process.env.ECPAY_ORDER_RESULT_URL || "http://localhost:3000";
+    const orderResultUrl = process.env.ECPAY_ORDER_RESULT_URL || "http://localhost:3001/api/payment/order-result";
     if (!returnUrl) {
       throw new Error("ECPAY_RETURN_URL is not configured.");
     }

@@ -940,3 +940,12 @@ npm.cmd run lint
 - Because `OrderResultURL` is inserted before `generateCheckMacValue`, it is included in the ECPay dictionary ordering and SHA256 checksum calculation.
 - Confirmed the frontend hidden form submits every returned checkout parameter through `Object.entries(params)`, so `OrderResultURL` is rendered as a hidden input automatically.
 - Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
+
+## 2026-05-19 ECPay Browser POST Redirect Relay
+
+- Changed checkout `OrderResultURL` to point at the backend relay route: `http://localhost:3001/api/payment/order-result`.
+- Added `POST /api/payment/order-result` to the local Express server so ECPay browser POST redirects are accepted by the backend instead of Vite.
+- The relay route logs `[支付導回]` and responds with HTTP 302 to `http://localhost:3000`, converting the browser flow back into a frontend GET navigation.
+- Added `ECPAY_ORDER_RESULT_FRONTEND_URL` to `.env.example` for future production frontend redirect configuration.
+- `OrderResultURL` remains part of the checkout params before `generateCheckMacValue`, so it is included in checksum signing and submitted through the existing hidden form.
+- Verification: `npm.cmd run lint` passed. `npm.cmd run build` passed.
